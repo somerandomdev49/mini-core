@@ -1,0 +1,16 @@
+main
+.vscode
+
+# why?!
+*/**/.DS_Store
+
+# do i need?
+3rd-party/include/glm/test
+3rd-party/include/glm/cmake
+3rd-party/include/glm/doc
+3rd-party/include/glm/util
+3rd-party/include/glm/include/test
+# no.
+
+# im too lazy to remove these files...
+my-things

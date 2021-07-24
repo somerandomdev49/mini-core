@@ -1,0 +1,26 @@
+#version 410 core
+layout(location = 0) in vec3 aPosition;
+layout(location = 1) in vec3 aNormal;
+layout(location = 2) in vec2 aTexCoord;
+layout(location = 3) in vec3 aTangent;
+
+out vec3 sPosition;
+out vec3 sNormal;
+out vec2 sTexCoord;
+out vec3 sNormalWorldSpace;
+
+uniform mat4 uNormalMatrix;
+uniform mat4 uTransform;
+
+void main() {
+    /* ----===========---- Shared ----===========---- */
+    sPosition = aPosition;
+    sNormal = aNormal;
+    sTexCoord = aTexCoord;
+
+    /* ----===========---- Normals ----===========---- */
+    sNormalWorldSpace = (uNormalMatrix * vec4(aNormal, 0.0)).xyz;
+
+    /* ----===========---- Position ----===========---- */
+    gl_Position = uTransform * vec4(aPosition, 1.0);
+}

@@ -1,0 +1,39 @@
+#version 410 core
+out vec4 oColor;
+
+in vec2 sTexCoord;
+
+struct Lighting {
+    float ambient;
+    vec4 directional; // xyz -> location, w -> intensity
+};
+
+uniform Lighting uLighting;
+
+uniform sampler2D gPosition;
+uniform sampler2D gNormal;
+uniform sampler2D gDiffuse;
+uniform sampler2D gDepthColor;
+
+float directionalLight(vec3 normal, vec4 light, float ambient) {
+    return clamp(dot(normalize(light.xyz), normal), ambient, 1) * light.w;
+}
+
+const float near = 0.1; 
+const float far  = 100.0; 
+  
+float linearizeDepth(float depth) 
+{
+    float z = depth * 2.0 - 1.0;
+    return (2.0 * near * far) / (far + near - z * (far - near));	
+}
+
+void main() {
+    vec3 fragPos = texture(gPosition, -sTexCoord).xyz;
+    vec3 normal = texture(gNormal, -sTexCoord).xyz * 2 - 1;
+    vec4 diffuse = texture(gDiffuse, -sTexCoord);
+    float depth = texture(gDepthColor, -sTexCoord).r;
+    
+    // oColor = vec4(normal, 1.0);
+    oColor = diffuse * directionalLight(normal, uLighting.directional, uLighting.ambient);
+}

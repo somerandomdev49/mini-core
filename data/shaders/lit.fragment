@@ -1,0 +1,29 @@
+#version 410 core
+out vec4 oColor;
+
+in vec3 sNormal;
+in vec2 sTexCoord;
+
+struct MaterialData {
+    vec2 tiling;
+    // TODO: PBR?
+};
+
+struct Lighting {
+    float ambient;
+    vec4 directional; // xyz -> location, w -> intensity
+};
+
+uniform Lighting uLighting;
+uniform MaterialData uMaterialData;
+
+uniform sampler2D uTexture;
+
+float directionalLight(vec4 light, float ambient) {
+    return clamp(dot(normalize(light.xyz), sNormal), ambient, 1) * light.w;
+}
+
+void main() {
+    vec2 tiledTexCoord = sTexCoord * uMaterialData.tiling;
+    oColor = directionalLight(uLighting.directional, uLighting.ambient) * texture(uTexture, tiledTexCoord);
+}

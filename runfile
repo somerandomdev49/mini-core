@@ -1,0 +1,26 @@
+# Use the following command instead:
+# NOTE: requires c++20 (c++17/11 with little (!) modifications)
+# NOTE: Add libraries yourself! (glfw3 + OpenGL)
+# g++ *.cpp 3rd-party/glad.c -o main -std=c++20 -I3rd-party/include
+
+
+
+
+
+# A macbook from 2013 has its problems...
+
+libs := -lglfw3 -framework Cocoa -framework OpenGL -framework IOKit
+default:
+
+    tmp=CPLUS_INCLUDE_PATH
+    export CPLUS_INCLUDE_PATH=/usr/local/Cellar/gcc/10.2.0/include/c++/10.2.0
+
+    %%myfilter g++-10 *.cpp 3rd-party/glad.c -o main -std=c++20 %libs -fdiagnostics-color -I3rd-party/include
+    export CPLUS_INCLUDE_PATH=$tmp
+
+    myfilter := s => s.split('\n').filter(x => !(/^ld: warning: text-based stub file .*/).test(x)).join('\n')
+
+# counting lines thing:
+# might be useful for you...
+countlines:
+    scc --exclude-dir=data,3rd-party,.vscode --include-ext=hpp,cpp

@@ -1,0 +1,34 @@
+#version 410 core
+
+// enum texture_type {
+//     texture_type_position,
+//     texture_type_diffuse,
+//     texture_type_normal,
+//     texture_type_texcoord,
+//     texture_type_count,
+// };
+
+layout(location = 0) out vec4 gPosition;
+layout(location = 1) out vec4 gNormal;
+layout(location = 2) out vec4 gDiffuse;
+layout(location = 3) out vec4 gDepthColor;
+
+in vec3 sPosition;
+in vec3 sNormal;
+in vec2 sTexCoord;
+in vec3 sNormalWorldSpace;
+
+uniform sampler2D uTexture;
+
+struct MaterialData {
+    vec2 tiling;
+    // TODO: PBR?
+};
+//sTBN * 
+uniform MaterialData uMaterialData;
+void main() { // 
+    gPosition = vec4(sPosition, 1.0); // gl_FragCoord.rgb
+    gDiffuse = vec4(texture(uTexture, sTexCoord * uMaterialData.tiling).rgb, 1.0);
+    gNormal = vec4(normalize(sNormalWorldSpace), 1.0) * 0.5 + 0.5;
+    gDepthColor = vec4(vec3(gl_FragCoord.z), 1);
+}
