@@ -14,6 +14,10 @@ uniform sampler2D gPosition;
 uniform sampler2D gNormal;
 uniform sampler2D gDiffuse;
 uniform sampler2D gDepthColor;
+uniform sampler2D gShadowDepth;
+uniform sampler2D gPositionLightSpace;
+
+uniform bool uDebug_ShowShadowMap;
 
 float directionalLight(vec3 normal, vec4 light, float ambient) {
     return clamp(dot(normalize(light.xyz), normal), ambient, 1) * light.w;
@@ -22,18 +26,47 @@ float directionalLight(vec3 normal, vec4 light, float ambient) {
 const float near = 0.1; 
 const float far  = 100.0; 
   
-float linearizeDepth(float depth) 
-{
+float linearizeDepth(float depth)  {
     float z = depth * 2.0 - 1.0;
     return (2.0 * near * far) / (far + near - z * (far - near));	
 }
 
+const int sampleCount = 4;
+
+float calculateShadow(vec4 fragPosLightSpace, vec3 normal) {
+    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+    projCoords = projCoords * 0.5 + 0.5;
+    if(projCoords.z > 1) return 1;
+    // float closestDepth = texture(gShadowDepth, projCoords.xy).r;
+    float currentDepth = projCoords.z;
+    float bias = max(0.05 * (1.0 - dot(uLighting.directional.xyz, normal)), 0.005);
+
+    float shadow = 0.0;
+    vec2 texelSize = 1.0 / textureSize(gShadowDepth, 0) * 0.5;
+    for(int x = -sampleCount/2; x <= sampleCount/2; ++x)
+    {
+        for(int y = -sampleCount/2; y <= sampleCount/2; ++y)
+        {
+            float pcfDepth = texture(gShadowDepth, projCoords.xy + vec2(x, y) * texelSize).r; 
+            shadow += currentDepth - bias > pcfDepth ? 1.0 : 0.0;        
+        }    
+    }
+    shadow /= 9.0;
+
+    return 1 - shadow; //currentDepth - bias > closestDepth ? uLighting.ambient : 1.0;
+}
+
 void main() {
     vec3 fragPos = texture(gPosition, -sTexCoord).xyz;
+    vec4 fragPosLightSpace = texture(gPositionLightSpace, -sTexCoord);
     vec3 normal = texture(gNormal, -sTexCoord).xyz * 2 - 1;
     vec4 diffuse = texture(gDiffuse, -sTexCoord);
     float depth = texture(gDepthColor, -sTexCoord).r;
+    float shadowDepth = texture(gShadowDepth, sTexCoord).r;
     
-    // oColor = vec4(normal, 1.0);
-    oColor = diffuse * directionalLight(normal, uLighting.directional, uLighting.ambient);
+    oColor = uDebug_ShowShadowMap
+           ? vec4(vec3(shadowDepth), 1.0)
+           : calculateShadow(fragPosLightSpace, normal)
+             * diffuse
+             * directionalLight(normal, uLighting.directional, uLighting.ambient);
 }

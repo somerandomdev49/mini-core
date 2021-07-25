@@ -31,9 +31,11 @@ struct Entity
 
     void render(
         core::gfx::camera &camera,
-        core::gfx::deferred_renderer &renderer)
+        core::gfx::deferred_renderer &renderer,
+        core::gfx::shader_instance &shadowShader,
+        const glm::mat4 &lightSpaceMatrix)
     {
-        renderer.render(camera, transform, mesh, texture, shader);
+        renderer.render(camera, transform, mesh, texture, shader, shadowShader, lightSpaceMatrix);
     }
 };
 
@@ -43,9 +45,11 @@ struct Scene
 
     void render(
         core::gfx::camera &camera,
-        core::gfx::deferred_renderer &renderer)
+        core::gfx::deferred_renderer &renderer,
+        core::gfx::shader_instance &shadowShader,
+        const glm::mat4 &lightSpaceMatrix)
     {
-        for(auto &e : entities) e.render(camera, renderer);
+        for(auto &e : entities) e.render(camera, renderer, shadowShader, lightSpaceMatrix);
     }
 };
 
@@ -61,8 +65,9 @@ int main()
     core::window::window win { 1920/2, 1080/2, "" }; // This should be initialized first!!
     core::gfx::deferred_renderer renderer {
         .buffer = core::gfx::gbuffer{1920, 1080},
+        .shadowBuffer = core::gfx::sbuffer{1920/2, 1080/2},
         .width = 1920,
-        .height = 1080,
+        .height = 1080, // fix this! (needs to be 1080/2 instead of 1080!)
         .debugBuffers = false
     };
 
@@ -107,7 +112,11 @@ int main()
         deleteTexture(data);
     }
 
-
+    {
+        auto data = readTexture("data/floor-cobblestone.jpeg", false);
+        resourceManager.textures["cobblestone"].reset(new core::gfx::texture{ data });
+        deleteTexture(data);
+    }
 
     // -----------============ Shader Loading ============----------- //
 
@@ -119,21 +128,33 @@ int main()
         shader->setUniform(shader->uniforms.materialData.tiling, glm::vec2(2, 2));
     }
 
+    resourceManager.shaders["shadow"].reset(
+        new core::gfx::shader{readFile("data/shaders/shadow.vertex"), readFile("data/shaders/shadow.fragment")
+    });
+    {
+        auto &shader = resourceManager.shaders["shadow"];
+    }
+
     resourceManager.shaders["screen"].reset(
         new core::gfx::shader{
             readFile("data/shaders/deferred/screen.vertex"),
             readFile("data/shaders/deferred/screen.fragment")
         }
     );
+
+    auto lightValue = glm::vec4(1.f, 1.2f, 0.3f, 1.f);
+    
     {
         auto &shader = resourceManager.shaders["screen"];
-        shader->setUniform(shader->getUniform("uLighting.directional"), glm::vec4(0.f, 1.f, 0.f, 1.f));
+        shader->setUniform(shader->getUniform("uLighting.directional"), lightValue);
         shader->setUniform(shader->getUniform("uLighting.ambient"), 0.05f);
 
         shader->setUniform(shader->getUniform("gPosition"), 0);
         shader->setUniform(shader->getUniform("gNormal"), 1);
         shader->setUniform(shader->getUniform("gDiffuse"), 2);
         shader->setUniform(shader->getUniform("gDepthColor"), 3);
+        shader->setUniform(shader->getUniform("gShadowDepth"), 4);
+        shader->setUniform(shader->getUniform("gPositionLightSpace"), 5);
     }
 
 
@@ -187,7 +208,7 @@ int main()
     {
         Entity e {
             .mesh = *resourceManager.meshes["quad"],
-            .texture = *resourceManager.textures["sandstone"],
+            .texture = *resourceManager.textures["cobblestone"],
             .shader = { .type = *resourceManager.shaders["lit"] },
         };
 
@@ -201,11 +222,18 @@ int main()
         scene.entities.push_back(std::move(e));
     }
 
-    Entity &myCube = scene.entities[0];
+    Entity &myCube = scene.entities[2];
 
     core::gfx::mesh &quadMesh = *resourceManager.meshes["quad"];
     core::gfx::shader &lightPassShader = *resourceManager.shaders["screen"];
+    
+    float size = 25.f;
+    glm::mat4 lightProjMatrix  = glm::ortho(-size, size, -size, size, -10.f, 40.f);
+    glm::mat4 lightViewMatrix  = glm::lookAt(glm::vec3(lightValue), glm::vec3{ 0, 0, 0 }, glm::vec3{ 0, 1, 0 });
+    glm::mat4 lightModelMatrix = glm::mat4(1.0f);
 
+    glm::mat4 lightMVPMatrix = lightProjMatrix * lightViewMatrix;
+    core::gfx::shader_instance shadowShader { .type = *resourceManager.shaders["shadow"] };
 
     // -----------============   Game Loop   ============----------- //
 
@@ -286,7 +314,7 @@ int main()
         if(handleInput(dt)) camera.update();
 
         renderer.begin();
-        scene.render(camera, renderer);
+        scene.render(camera, renderer, shadowShader, lightMVPMatrix);
         renderer.light(lightPassShader, quadMesh);
     },
 

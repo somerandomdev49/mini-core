@@ -12,11 +12,13 @@ layout(location = 0) out vec4 gPosition;
 layout(location = 1) out vec4 gNormal;
 layout(location = 2) out vec4 gDiffuse;
 layout(location = 3) out vec4 gDepthColor;
+layout(location = 4) out vec4 gPositionLightSpace;
 
 in vec3 sPosition;
 in vec3 sNormal;
 in vec2 sTexCoord;
 in vec3 sNormalWorldSpace;
+in vec4 sLightSpacePosition;
 
 uniform sampler2D uTexture;
 
@@ -31,4 +33,5 @@ void main() { //
     gDiffuse = vec4(texture(uTexture, sTexCoord * uMaterialData.tiling).rgb, 1.0);
     gNormal = vec4(normalize(sNormalWorldSpace), 1.0) * 0.5 + 0.5;
     gDepthColor = vec4(vec3(gl_FragCoord.z), 1);
+    gPositionLightSpace = sLightSpacePosition;
 }

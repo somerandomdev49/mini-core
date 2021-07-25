@@ -3,8 +3,8 @@
 
 Minimal means minimal! The only thing this framework can do is render things. This means that you need to load models, textures, shaders and other things yourself.
 
-The framework providers a deferred renderer with support for simple directional lighting and textures (shadows, you're next!).
-> Note: there is a forward renderer with minimal support for lighting and I don't really plan to support it (maybe after shadows are done?)
+The framework providers a deferred renderer with support for simple directional lighting, textures and shadows.
+> Note: there is a forward renderer with minimal support for lighting and I don't really plan to support it for now
 
 <h3 align="center">File Structure</h3>
 

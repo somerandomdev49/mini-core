@@ -2,13 +2,14 @@
 layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec2 aTexCoord;
-layout(location = 3) in vec3 aTangent;
 
 out vec3 sPosition;
 out vec3 sNormal;
 out vec2 sTexCoord;
 out vec3 sNormalWorldSpace;
+out vec4 sLightSpacePosition;
 
+uniform mat4 uTransformLightSpace;
 uniform mat4 uNormalMatrix;
 uniform mat4 uTransform;
 
@@ -17,6 +18,9 @@ void main() {
     sPosition = aPosition;
     sNormal = aNormal;
     sTexCoord = aTexCoord;
+
+    // vec4 tmp = ;
+    sLightSpacePosition = uTransformLightSpace * vec4(aPosition, 1.0);
 
     /* ----===========---- Normals ----===========---- */
     sNormalWorldSpace = (uNormalMatrix * vec4(aNormal, 0.0)).xyz;

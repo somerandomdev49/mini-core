@@ -46,6 +46,7 @@ namespace srd::core
             struct
             {
                 int transform;
+                int transformLightSpace;
                 int normalMatrix;
 
                 int texture0;
@@ -54,6 +55,11 @@ namespace srd::core
                 {
                     int tiling;
                 } materialData;
+
+                struct
+                {
+                    int showShadowMap;
+                } debug;
             } uniforms;
 
             shader(const std::string &vertex, const std::string &fragment);
@@ -61,6 +67,7 @@ namespace srd::core
             void use() const;
             int getUniform(const std::string &name) const;
             void setUniform(int location, int value) const;
+            void setUniform(int location, bool value) const;
             void setUniform(int location, float value) const;
             void setUniform(int location, const glm::vec4 &value) const;
             void setUniform(int location, const glm::quat &value) const;
@@ -156,6 +163,7 @@ namespace srd::core
             unsigned int textureNormal;
             unsigned int textureDiffuse;
             unsigned int textureDepthColor;
+            unsigned int textureLightSpacePosition;
             unsigned int textureDepth;
 
             gbuffer(int width, int height);
@@ -165,7 +173,7 @@ namespace srd::core
         struct deferred_renderer
         {
             gbuffer buffer;
-            // sbuffer sbuffer;
+            sbuffer shadowBuffer;
             int width, height;
             bool debugBuffers;
             void begin();
@@ -173,7 +181,9 @@ namespace srd::core
                         math::transform &transform,
                         mesh &mesh,
                         texture &texture,
-                        shader_instance &shader);
+                        shader_instance &shader,
+                        shader_instance &shadowShader,
+                        const glm::mat4 &lightSpaceMatrix);
 
             void light(gfx::shader &lightPassShader, gfx::mesh &quadMesh);
         };
@@ -296,7 +306,8 @@ namespace srd::core
 
                 if(!success)
                 {
-                    glGetShaderInfoLog(shader, 512, NULL, infoLog);
+                    if(type < 2) glGetShaderInfoLog(shader, 512, NULL, infoLog);
+                    else         glGetProgramInfoLog(shader, 512, NULL, infoLog);
                     std::cerr << "\033[0;31m" << (type==0?"Vertex Shader":type==1?"Fragment Shader":"Program")
                         << " Compilation Failed!\033[0;0m\n" << infoLog << std::endl;
                 }
@@ -328,8 +339,13 @@ namespace srd::core
             uniforms.normalMatrix = getUniform("uNormalMatrix");
             uniforms.texture0 = getUniform("uTexture");
             uniforms.materialData.tiling = getUniform("uMaterialData.tiling");
+            uniforms.transformLightSpace = getUniform("uTransformLightSpace");
+            uniforms.debug.showShadowMap = getUniform("uDebug_ShowShadowMap");
             setUniform(uniforms.materialData.tiling, glm::vec2(1, 1));
             setUniform(uniforms.texture0, 0);
+
+            setUniform(uniforms.debug.showShadowMap, 0);
+
         }
 
         void shader::use() const
@@ -350,6 +366,11 @@ namespace srd::core
         {
             glUseProgram(id);
             glUniform1i(location, value);
+        }
+        void shader::setUniform(int location, bool value) const
+        {
+            glUseProgram(id);
+            glUniform1i(location, value ? 1 : 0);
         }
         void shader::setUniform(int location, float value) const
         {
@@ -535,7 +556,7 @@ namespace srd::core
             glGenFramebuffers(1, &fbo);
             glGenTextures(1, &depthTexture);
             glBindTexture(GL_TEXTURE_2D, depthTexture);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, 
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT16, 
                          width, height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -546,6 +567,12 @@ namespace srd::core
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTexture, 0);
             glDrawBuffer(GL_NONE);
             glReadBuffer(GL_NONE);
+
+            if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+            {
+                std::cout << "Shadow Framebuffer not complete!" << std::endl;
+            }
+
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
         }
         
@@ -585,16 +612,25 @@ namespace srd::core
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, textureDepthColor, 0);
+
+            // - light space position color buffer
+            glGenTextures(1, &textureLightSpacePosition);
+            glBindTexture(GL_TEXTURE_2D, textureLightSpacePosition);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT4, GL_TEXTURE_2D, textureLightSpacePosition, 0);
             
             // - tell OpenGL which color attachments we'll use (of this framebuffer) for rendering 
-            unsigned int attachments[4] = {
+            unsigned int attachments[5] = {
                 GL_COLOR_ATTACHMENT0,
                 GL_COLOR_ATTACHMENT1,
                 GL_COLOR_ATTACHMENT2,
                 GL_COLOR_ATTACHMENT3,
+                GL_COLOR_ATTACHMENT4,
             };
 
-            glDrawBuffers(4, attachments);
+            glDrawBuffers(5, attachments);
 
             glGenRenderbuffers(1, &textureDepth);
             glBindRenderbuffer(GL_RENDERBUFFER, textureDepth);
@@ -602,12 +638,21 @@ namespace srd::core
             glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, textureDepth);
 
             if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-                std::cout << "Framebuffer not complete!" << std::endl;
+                std::cerr << "Framebuffer not complete!" << std::endl;
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
         }
         
         void deferred_renderer::begin()
         {
+            glEnable(GL_DEPTH_TEST);
+            // glClearColor(0, 0, 0, 1);
+            glViewport(0, 0, shadowBuffer.width, shadowBuffer.height);
+            glBindFramebuffer(GL_FRAMEBUFFER, shadowBuffer.fbo);
+            glEnable(GL_DEPTH_TEST);
+            glClear(GL_DEPTH_BUFFER_BIT);
+
+            // glClearColor(0.2, 0.3, 0.5, 1);
+            glViewport(0, 0, width, height);
             glBindFramebuffer(GL_FRAMEBUFFER, buffer.fbo);
             glEnable(GL_DEPTH_TEST);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -617,13 +662,29 @@ namespace srd::core
                                       math::transform &transform,
                                       mesh &mesh,
                                       texture &texture,
-                                      shader_instance &shader)
+                                      shader_instance &shader,
+                                      shader_instance &shadowShader,
+                                      const glm::mat4 &lightSpaceMatrix)
         {
+            // glCullFace(GL_FRONT);
+            glViewport(0, 0, shadowBuffer.width, shadowBuffer.height);
+            glBindFramebuffer(GL_FRAMEBUFFER, shadowBuffer.fbo);
+            mesh.bind();
+            shadowShader.use();
+            shadowShader.type.setUniform(
+                shadowShader.type.uniforms.transformLightSpace,
+                lightSpaceMatrix * transform.matrix
+            );
+            glDrawElements(GL_TRIANGLES, mesh.elementCount, GL_UNSIGNED_INT, 0);
+
+            glCullFace(GL_BACK);
+            glViewport(0, 0, width, height);
+            glBindFramebuffer(GL_FRAMEBUFFER, buffer.fbo);
             mesh.bind();
             shader.use();
             texture.bind(0);
-
             glm::mat4 normalMatrix = transform.matrix;
+            shader.type.setUniform(shader.type.uniforms.transformLightSpace, lightSpaceMatrix * transform.matrix);
             shader.type.setUniform(shader.type.uniforms.normalMatrix, normalMatrix);
             shader.type.setUniform(shader.type.uniforms.transform, camera.projection(transform));
             glDrawElements(GL_TRIANGLES, mesh.elementCount, GL_UNSIGNED_INT, 0);
@@ -647,8 +708,15 @@ namespace srd::core
             glActiveTexture(GL_TEXTURE3);
             glBindTexture(GL_TEXTURE_2D, buffer.textureDepthColor);
 
+            glActiveTexture(GL_TEXTURE4);
+            glBindTexture(GL_TEXTURE_2D, shadowBuffer.depthTexture);
+
+            glActiveTexture(GL_TEXTURE5);
+            glBindTexture(GL_TEXTURE_2D, buffer.textureLightSpacePosition);
+
             quadMesh.bind();
             lightPassShader.use();
+            lightPassShader.setUniform(lightPassShader.uniforms.debug.showShadowMap, this->debugBuffers);
             glDrawElements(GL_TRIANGLES, quadMesh.elementCount, GL_UNSIGNED_INT, 0);
         }
     }
@@ -674,8 +742,6 @@ namespace srd::core::window
         auto win = (GLFWwindow*)r.win;
         glEnable(GL_DEPTH_TEST);
         // glEnable(GL_CULL_FACE);
-        
-
 
         auto titleLength = std::strlen(r.title);
         float lastTime = 0.f, lastFpsTime = 0.f;
