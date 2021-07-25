@@ -8,15 +8,15 @@ The framework providers a deferred renderer with support for simple directional 
 
 <h3 align="center">Documentation + File Structure</h3>
 
-The file structure is a little weird: <small>[todo: doxygen!!]</small>
+The file structure is a little weird: <sup><sub>[todo: doxygen!!]</sub></sup>
 * `core.hpp` the actual framework
   * depends on:
-    * [`glm`](https://github.com/g-truc/glm/) <small>[todo: submodule!]</small>
+    * [`glm`](https://github.com/g-truc/glm/) <sup><sub>[todo: submodule!]</sub></sup>
     * [`glfw`](https://www.glfw.org/)
-    * [`glad`](https://glad.dav1d.de/) <small>my old mac only supports gl 4.1, so that</small>
-  * namespace `srd::core` <small>(srd ↝ somerandomdev)</small>
+    * [`glad`](https://glad.dav1d.de/) <sup><sub>my old mac only supports gl 4.1, so that</sub></sup>
+  * namespace `srd::core` <sup><sub>(srd ↝ somerandomdev)</sub></sup>
     * namespace `window`
-      * struct `window` <small>[change name to be different from the ns?]</small>
+      * struct `window` <sup><sub>[change name to be different from the ns?]</sub></sup>
         * `int width, height`
         * `const char *title`
     * namespace `math`
@@ -35,8 +35,8 @@ The file structure is a little weird: <small>[todo: doxygen!!]</small>
         * `shader(const std::string &vertex, const std::string &fragment)` - creates a shader with a vertex shader source and a fragment shader source.
         * `~shader()` - deletes the shader program.
     * struct `mesh` - TODO
-    * struct `gbuffer` - TODO <small>note: set width and height to window's w and h</small>
-    * struct `deferred_renderer` - TODO <small>note: same as gbuffer</small>
+    * struct `gbuffer` - TODO <sup><sub>note: set width and height to window's w and h</sub></sup>
+    * struct `deferred_renderer` - TODO <sup><sub>note: same as gbuffer</sub></sup>
     
 * `main.cpp` - an example/tester that uses `srd::core`
 * `util.hpp` - what `main.cpp` uses to load models and textures
@@ -44,7 +44,7 @@ The file structure is a little weird: <small>[todo: doxygen!!]</small>
     * [`tiny_obj_loader.h`](https://github.com/tinyobjloader/tinyobjloader/)
     * [`stb_image.h`](https://github.com/nothings/stb/blob/master/stb_image.h)
 * `log.hpp` - a tiny logging library, only needed for `main.cpp` and `log.hpp`
-* `log.cpp` - `log.hpp` default imlementation <small>{take a look}</small>
+* `log.cpp` - `log.hpp` default imlementation <sup><sub>{take a look}</sub></sup>
 * `runfile` - similar to `Makefile` for my `make` alternative (just run the console command)
 
 The header file uses the same guard as most of `stb`'s headers do:
@@ -53,11 +53,11 @@ The header file uses the same guard as most of `stb`'s headers do:
 #define SRD_CORE_IMPLEMENTATION
 #include <.../.../core.hpp>
 ```
-**Important!** `srd::core::window::show(...)` is defined only when `SRD_CORE_IMPLEMENTATION` is defined! <small>(this is because the function needs to have templates for lambdas! [`std::function` is slow...])</small>
+**Important!** `srd::core::window::show(...)` is defined only when `SRD_CORE_IMPLEMENTATION` is defined! <sup><sub>(this is because the function needs to have templates for lambdas! [`std::function` is slow...])</supb><sup>
 
 <h3 align="center">Example</h3>
 
-**TODO!** See `main.cpp`!!! <small>(it's small)</small>
+**TODO!** See `main.cpp`!!! <sup><sub>(it's small)</sub></sup>
 
 <h3 align="center">Notes</h3>
 
