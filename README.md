@@ -6,7 +6,7 @@ Minimal means minimal! The only thing this framework can do is render things. Th
 The framework providers a deferred renderer with support for simple directional lighting and textures (shadows, you're next!).
 > Note: there is a forward renderer with minimal support for lighting and I don't really plan to support it (maybe after shadows are done?)
 
-<h3 align="center">Documentation + File Structure</h3>
+<h3 align="center">File Structure</h3>
 
 * `core.hpp` - the actual framework
   * depends on:
