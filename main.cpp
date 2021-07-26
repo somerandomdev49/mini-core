@@ -58,6 +58,7 @@ struct ResourceManager
     std::unordered_map<std::string, std::unique_ptr<core::gfx::mesh>> meshes;
     std::unordered_map<std::string, std::unique_ptr<core::gfx::texture>> textures;
     std::unordered_map<std::string, std::unique_ptr<core::gfx::shader>> shaders;
+    std::unordered_map<std::string, std::unique_ptr<core::gfx::cubemap>> cubemaps;
 };
 
 int main()
@@ -118,6 +119,31 @@ int main()
         deleteTexture(data);
     }
 
+    {
+        auto xPos = readTexture("data/textures/skybox/skybox_px.jpg", false);
+        auto xNeg = readTexture("data/textures/skybox/skybox_nx.jpg", false);
+        auto yPos = readTexture("data/textures/skybox/skybox_py.jpg", false);
+        auto yNeg = readTexture("data/textures/skybox/skybox_ny.jpg", false);
+        auto zPos = readTexture("data/textures/skybox/skybox_pz.jpg", false);
+        auto zNeg = readTexture("data/textures/skybox/skybox_nz.jpg", false);
+        resourceManager.cubemaps["skybox"].reset(new core::gfx::cubemap
+        {
+            xPos,
+            xNeg,
+            yPos,
+            yNeg,
+            zPos,
+            zNeg
+        });
+        deleteTexture(xPos);
+        deleteTexture(xNeg);
+        deleteTexture(yPos);
+        deleteTexture(yNeg);
+        deleteTexture(zPos);
+        deleteTexture(zNeg);
+
+    }
+
     // -----------============ Shader Loading ============----------- //
 
     resourceManager.shaders["lit"].reset(
@@ -131,9 +157,10 @@ int main()
     resourceManager.shaders["shadow"].reset(
         new core::gfx::shader{readFile("data/shaders/shadow.vertex"), readFile("data/shaders/shadow.fragment")
     });
-    {
-        auto &shader = resourceManager.shaders["shadow"];
-    }
+
+    resourceManager.shaders["skybox"].reset(
+        new core::gfx::shader{readFile("data/shaders/skybox.vertex"), readFile("data/shaders/skybox.fragment")
+    });
 
     resourceManager.shaders["screen"].reset(
         new core::gfx::shader{
@@ -223,6 +250,15 @@ int main()
     }
 
     Entity &myCube = scene.entities[2];
+
+    core::gfx::skybox skybox {
+        .texture = *resourceManager.cubemaps["skybox"],
+        .skyMesh = *resourceManager.meshes["cube"],
+    };
+
+    skybox.update(camera.transform.position);
+
+    core::gfx::shader_instance skyboxShader { .type = *resourceManager.shaders["skybox"] };
 
     core::gfx::mesh &quadMesh = *resourceManager.meshes["quad"];
     core::gfx::shader &lightPassShader = *resourceManager.shaders["screen"];
@@ -315,6 +351,7 @@ int main()
 
         renderer.begin();
         scene.render(camera, renderer, shadowShader, lightMVPMatrix);
+        skybox.render(camera, skyboxShader, renderer);
         renderer.light(lightPassShader, quadMesh);
     },
 

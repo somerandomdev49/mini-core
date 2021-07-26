@@ -134,9 +134,10 @@ namespace srd::core
             camera(int width, int height, float near, float far);
             void update();
             void resize(int width, int height);
-            glm::mat4 projection(const math::transform &model);
+            glm::mat4 projection(const glm::mat4 &model);
         };
 
+        /** \deprecated */
         struct forward_renderer
         {
             void render(camera &camera,
@@ -144,6 +145,22 @@ namespace srd::core
                         mesh &mesh,
                         texture &texture,
                         shader_instance &shader);
+        };
+
+        struct cubemap
+        {
+            unsigned int id;
+
+            cubemap(const texture::data &xPos,
+                    const texture::data &xNeg,
+                    const texture::data &yPos,
+                    const texture::data &yNeg,
+                    const texture::data &zPos,
+                    const texture::data &zNeg);
+
+            ~cubemap();
+
+            void bind(int unit);
         };
 
         /** Shadow Framebuffer. */
@@ -154,6 +171,7 @@ namespace srd::core
             int width, height;
 
             sbuffer(int width, int height);
+            ~sbuffer();
         };
 
         struct gbuffer
@@ -167,7 +185,7 @@ namespace srd::core
             unsigned int textureDepth;
 
             gbuffer(int width, int height);
-            // ~gbuffer();
+            ~gbuffer();
         };  
 
         struct deferred_renderer
@@ -186,6 +204,20 @@ namespace srd::core
                         const glm::mat4 &lightSpaceMatrix);
 
             void light(gfx::shader &lightPassShader, gfx::mesh &quadMesh);
+        };
+
+        struct skybox
+        {
+            cubemap &texture;
+            mesh &skyMesh;
+            glm::vec3 scale = { 30.f, 30.f, 30.f };
+            glm::mat4 transform;
+
+            /** Updates the transform matrix according to 'scale' and a position. */
+            void update(const glm::vec3 &cameraPosition);
+
+            /** Renders the skybox using the shader */
+            void render(camera &camera, shader_instance &shader, deferred_renderer &renderer);
         };
     }
 }
@@ -493,6 +525,54 @@ namespace srd::core
             glActiveTexture(GL_TEXTURE0 + unit);
             glBindTexture(GL_TEXTURE_2D, id);
         }
+
+        cubemap::cubemap(const texture::data &xPos,
+                         const texture::data &xNeg,
+                         const texture::data &yPos,
+                         const texture::data &yNeg,
+                         const texture::data &zPos,
+                         const texture::data &zNeg)
+        {
+            static int types[] =
+            {
+                GL_TEXTURE_CUBE_MAP_POSITIVE_X,
+                GL_TEXTURE_CUBE_MAP_NEGATIVE_X,
+                GL_TEXTURE_CUBE_MAP_POSITIVE_Y,
+                GL_TEXTURE_CUBE_MAP_NEGATIVE_Y,
+                GL_TEXTURE_CUBE_MAP_POSITIVE_Z,
+                GL_TEXTURE_CUBE_MAP_NEGATIVE_Z,
+            };
+
+            const texture::data *datas[] =
+            {
+                &xPos, &xNeg, &yPos, &yNeg, &zPos, &zNeg
+            };
+
+            glGenTextures(1, &id);
+            glBindTexture(GL_TEXTURE_CUBE_MAP, id);
+
+            for(int i = 0; i < 6; ++i)
+            {
+                glTexImage2D(types[i], 0, GL_RGB, datas[i]->width, datas[i]->height, 0, GL_RGBA,
+                    GL_UNSIGNED_BYTE, datas[i]->data);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+            }   
+        }
+
+        void cubemap::bind(int unit)
+        {
+            glActiveTexture(unit);
+            glBindTexture(GL_TEXTURE_CUBE_MAP, id);
+        }
+
+        cubemap::~cubemap()
+        {
+            glDeleteTextures(1, &id);
+        }
 #pragma endregion
 #pragma region Camera
         camera::camera(int width, int height, float near, float far)
@@ -529,9 +609,9 @@ namespace srd::core
             viewMatrix[3][2] =  dot(f, transform.position);
         }
 
-        glm::mat4 camera::projection(const math::transform &model)
+        glm::mat4 camera::projection(const glm::mat4 &model)
         {   
-            return projMatrix * viewMatrix * model.matrix; // viewMatrix
+            return projMatrix * viewMatrix * model;
         }
 #pragma endregion
 
@@ -545,7 +625,7 @@ namespace srd::core
             mesh.bind();
             shader.use();
             texture.bind(0);
-            shader.type.setUniform(shader.type.uniforms.transform, camera.projection(transform));
+            shader.type.setUniform(shader.type.uniforms.transform, camera.projection(transform.matrix));
             glDrawElements(GL_TRIANGLES, mesh.elementCount, GL_UNSIGNED_INT, 0);
         }
 
@@ -558,10 +638,12 @@ namespace srd::core
             glBindTexture(GL_TEXTURE_2D, depthTexture);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT16, 
                          width, height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
 
             glBindFramebuffer(GL_FRAMEBUFFER, fbo);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTexture, 0);
@@ -575,13 +657,18 @@ namespace srd::core
 
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
         }
+
+        sbuffer::~sbuffer()
+        {
+            glDeleteFramebuffers(1, &fbo);
+        }
         
         gbuffer::gbuffer(int width, int height)
         {
             glGenFramebuffers(1, &fbo);
             glBindFramebuffer(GL_FRAMEBUFFER, fbo);
             
-            // - position color buffer
+            // position color buffer
             glGenTextures(1, &texturePosition);
             glBindTexture(GL_TEXTURE_2D, texturePosition);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
@@ -589,7 +676,7 @@ namespace srd::core
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texturePosition, 0);
             
-            // - normal color buffer
+            // normal color buffer
             glGenTextures(1, &textureNormal);
             glBindTexture(GL_TEXTURE_2D, textureNormal);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
@@ -597,7 +684,7 @@ namespace srd::core
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, textureNormal, 0);
             
-            // - diffuse color buffer
+            // diffuse color buffer
             glGenTextures(1, &textureDiffuse);
             glBindTexture(GL_TEXTURE_2D, textureDiffuse);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
@@ -605,7 +692,7 @@ namespace srd::core
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, textureDiffuse, 0);
 
-            // - depth color buffer
+            // depth color buffer
             glGenTextures(1, &textureDepthColor);
             glBindTexture(GL_TEXTURE_2D, textureDepthColor);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
@@ -613,7 +700,7 @@ namespace srd::core
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, textureDepthColor, 0);
 
-            // - light space position color buffer
+            // light space position color buffer
             glGenTextures(1, &textureLightSpacePosition);
             glBindTexture(GL_TEXTURE_2D, textureLightSpacePosition);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
@@ -621,7 +708,6 @@ namespace srd::core
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT4, GL_TEXTURE_2D, textureLightSpacePosition, 0);
             
-            // - tell OpenGL which color attachments we'll use (of this framebuffer) for rendering 
             unsigned int attachments[5] = {
                 GL_COLOR_ATTACHMENT0,
                 GL_COLOR_ATTACHMENT1,
@@ -640,6 +726,11 @@ namespace srd::core
             if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
                 std::cerr << "Framebuffer not complete!" << std::endl;
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        }
+
+        gbuffer::~gbuffer()
+        {
+            glDeleteFramebuffers(1, &fbo);
         }
         
         void deferred_renderer::begin()
@@ -686,7 +777,7 @@ namespace srd::core
             glm::mat4 normalMatrix = transform.matrix;
             shader.type.setUniform(shader.type.uniforms.transformLightSpace, lightSpaceMatrix * transform.matrix);
             shader.type.setUniform(shader.type.uniforms.normalMatrix, normalMatrix);
-            shader.type.setUniform(shader.type.uniforms.transform, camera.projection(transform));
+            shader.type.setUniform(shader.type.uniforms.transform, camera.projection(transform.matrix));
             glDrawElements(GL_TRIANGLES, mesh.elementCount, GL_UNSIGNED_INT, 0);
         }
 
@@ -718,6 +809,34 @@ namespace srd::core
             lightPassShader.use();
             lightPassShader.setUniform(lightPassShader.uniforms.debug.showShadowMap, this->debugBuffers);
             glDrawElements(GL_TRIANGLES, quadMesh.elementCount, GL_UNSIGNED_INT, 0);
+        }
+
+        void skybox::update(const glm::vec3 &cameraPosition)
+        {
+            transform = glm::translate(glm::mat4(1.0f), cameraPosition);
+            transform = glm::scale(transform, scale);
+        }
+
+        void skybox::render(camera &camera, shader_instance &shader, deferred_renderer &renderer)
+        {
+            glViewport(0, 0, renderer.width, renderer.height);
+            glBindFramebuffer(GL_FRAMEBUFFER, renderer.buffer.fbo);
+
+            GLint oldCullFaceMode;
+            glGetIntegerv(GL_CULL_FACE_MODE, &oldCullFaceMode);
+            GLint oldDepthFuncMode;
+            glGetIntegerv(GL_DEPTH_FUNC, &oldDepthFuncMode);
+
+            glCullFace(GL_FRONT);
+            glDepthFunc(GL_LEQUAL);
+
+            texture.bind(0);
+            shader.type.setUniform(shader.type.uniforms.transform, camera.projection(transform));
+            skyMesh.bind();
+            glDrawElements(GL_TRIANGLES, skyMesh.elementCount, GL_UNSIGNED_INT, 0);
+
+            glCullFace(oldCullFaceMode);
+            glDepthFunc(oldDepthFuncMode);
         }
     }
 }
