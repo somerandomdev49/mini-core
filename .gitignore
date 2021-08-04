@@ -12,5 +12,12 @@ main
 3rd-party/include/glm/include/test
 # no.
 
+build/
+
 # im too lazy to remove these files...
 my-things
+
+# i tried to add physics, tried many things:
+3rd-party/qu3e
+3rd-party/reactphysics3d
+3rd-party/rigidbox

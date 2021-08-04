@@ -43,24 +43,6 @@ namespace srd::core
         struct shader
         {
             unsigned int id;
-            struct
-            {
-                int transform;
-                int transformLightSpace;
-                int normalMatrix;
-
-                int texture0;
-
-                struct
-                {
-                    int tiling;
-                } materialData;
-
-                struct
-                {
-                    int showShadowMap;
-                } debug;
-            } uniforms;
 
             shader(const std::string &vertex, const std::string &fragment);
             ~shader();
@@ -77,20 +59,130 @@ namespace srd::core
             void setUniform(int location, const glm::mat3 &value) const;
         };
 
-        struct shader_instance
+        namespace shaders
         {
-            shader &type;
-            struct
+            /** Shader used for the geometry pass. */
+            struct geometry_shader : public shader
             {
                 struct
                 {
-                    glm::vec2 tiling;
-                } materialData;
-            } uniforms;
-            
-            /** Binds the shader and sets all of the necessary uniforms. */
-            void use() const;
-        };
+                    int transform;
+                    int transformLightSpace;
+                    int normalMatrix;
+
+                    int texture0;
+
+                    struct
+                    {
+                        int tiling;
+                    } materialData; 
+                } uniforms;
+
+                geometry_shader(const std::string &vertex, const std::string &fragment);
+            };
+
+            struct geometry_shader_instance
+            {
+                geometry_shader &type;
+                struct
+                {
+                    struct
+                    {
+                        glm::vec2 tiling = { 1, 1 };
+                    } materialData;
+                } uniforms;
+                
+                /** Binds the shader and sets all of the necessary uniforms. */
+                void use() const;
+            };
+
+            /** Shader used for the shadow geometry pass. */
+            struct shadow_shader : public shader
+            {
+                struct
+                {
+                    int transformLightSpace;
+                } uniforms;
+
+                shadow_shader(const std::string &vertex, const std::string &fragment);
+            };
+
+            /** Shader which is used by the deferred renderer. */
+            struct screen_shader : public shader
+            {
+                struct
+                {
+                    int texturePosition;
+                    int textureNormal;
+                    int textureDiffuse;
+                    int textureDepthColor;
+                    int textureShadowDepth;
+                    int texturePositionLightSpace;
+
+                    struct
+                    {
+                        int directional;
+                        int ambient;
+                    } lighting;
+
+                    struct
+                    {
+                        int showShadowMap;
+                    } debug;
+                } uniforms;
+
+                screen_shader(const std::string &vertex, const std::string &fragment);
+            };
+
+            struct screen_shader_instance
+            {
+                screen_shader &type;
+                struct
+                {
+                    struct
+                    {
+                        glm::vec4 directional = { 0, 1.f, 0, 1.f };
+                        float ambient = 0.2f;
+                    } lighting;
+
+                    struct
+                    {
+                        bool showShadowMap = false;
+                    } debug;
+                } uniforms;
+
+                /** Binds the shader and sets all of the necessary uniforms. */
+                void use() const;
+            };
+
+            /** Shader used for the sky pass. */
+            struct skybox_shader : public shader
+            {
+                struct
+                {
+                    int transform;
+                    int texture0;
+                    int texture1;
+                    int tint;
+                    int transition;
+                } uniforms;
+
+                skybox_shader(const std::string &vertex, const std::string &fragment);
+            };
+
+            /** Shader used for the sky pass. */
+            struct skybox_shader_instance
+            {
+                skybox_shader &type;
+                struct
+                {
+                    glm::vec4 tint = { 1, 1, 1, 1 };
+                    float transition;
+                } uniforms;
+                
+                void use() const;
+            };
+        }
 
         struct vertex
         {
@@ -144,7 +236,7 @@ namespace srd::core
                         math::transform &transform,
                         mesh &mesh,
                         texture &texture,
-                        shader_instance &shader);
+                        shaders::geometry_shader_instance &shader);
         };
 
         struct cubemap
@@ -186,7 +278,28 @@ namespace srd::core
 
             gbuffer(int width, int height);
             ~gbuffer();
-        };  
+        }; 
+
+        struct skybox
+        {
+            cubemap &texture;
+            mesh &skyMesh;
+            glm::vec3 scale = { 10.f, 10.f, 10.f };
+            glm::mat4 transform;
+
+            /** Updates the transform matrix according to 'scale' and a position. */
+            void update(const glm::vec3 &cameraPosition);
+        };
+
+        struct render_data
+        {
+            math::transform &transform;
+            mesh &mesh_;
+            texture &texture_;
+            shaders::geometry_shader_instance &shader;
+            shaders::shadow_shader &shadowShader;
+            const glm::mat4 &lightSpaceMatrix;
+        };
 
         struct deferred_renderer
         {
@@ -195,30 +308,12 @@ namespace srd::core
             int width, height;
             bool debugBuffers;
             void begin();
-            void render(camera &camera,
-                        math::transform &transform,
-                        mesh &mesh,
-                        texture &texture,
-                        shader_instance &shader,
-                        shader_instance &shadowShader,
-                        const glm::mat4 &lightSpaceMatrix);
-
-            void light(gfx::shader &lightPassShader, gfx::mesh &quadMesh);
+            void render(camera &camera, const render_data &data);
+            void sky(camera &camera, skybox &sky, shaders::skybox_shader_instance &shader);
+            void light(shaders::screen_shader_instance &lightPassShader, gfx::mesh &quadMesh);
         };
 
-        struct skybox
-        {
-            cubemap &texture;
-            mesh &skyMesh;
-            glm::vec3 scale = { 30.f, 30.f, 30.f };
-            glm::mat4 transform;
-
-            /** Updates the transform matrix according to 'scale' and a position. */
-            void update(const glm::vec3 &cameraPosition);
-
-            /** Renders the skybox using the shader */
-            void render(camera &camera, shader_instance &shader, deferred_renderer &renderer);
-        };
+        
     }
 }
 
@@ -240,13 +335,62 @@ namespace std
 
 namespace srd::core
 {
+    void logError(const std::string &message)
+    {
+        std::cerr << "\033[0;31mError: " << message << "\033[0;0m" << std::endl;
+    }
+
+    char const* errorToString_(GLenum const err) noexcept
+    {
+        switch (err)
+        {
+        // opengl 2 errors (8)
+        case GL_NO_ERROR:
+        return "GL_NO_ERROR";
+
+        case GL_INVALID_ENUM:
+        return "GL_INVALID_ENUM";
+
+        case GL_INVALID_VALUE:
+        return "GL_INVALID_VALUE";
+
+        case GL_INVALID_OPERATION:
+        return "GL_INVALID_OPERATION";
+
+        case GL_STACK_OVERFLOW:
+        return "GL_STACK_OVERFLOW";
+
+        case GL_STACK_UNDERFLOW:
+        return "GL_STACK_UNDERFLOW";
+
+        case GL_OUT_OF_MEMORY:
+        return "GL_OUT_OF_MEMORY";
+
+        // opengl 3 errors (1)
+        case GL_INVALID_FRAMEBUFFER_OPERATION:
+        return "GL_INVALID_FRAMEBUFFER_OPERATION";
+
+        // gles 2, 3 and gl 4 error are handled by the switch above
+        default:
+        assert(!"unknown error");
+        return nullptr;
+        }
+    }
+
+    /** Checks for OpenGL errors. */
+    void checkErrors_(const char *msg = 0)
+    {
+        auto e = glGetError();
+        if(e != GL_NO_ERROR)
+        {
+            logError(std::string("OpenGL Error ") + "[" + msg + "]: " + errorToString_(e));
+        }
+    }
+
     namespace window
     {
 #pragma region Window
-        void logError(const char *message)
-        {
-            std::cerr << "\033[0;31mError: " << message << "\033[0;0m" << std::endl;
-        }
+        
 
         void log(const char *message)
         {
@@ -367,17 +511,86 @@ namespace srd::core
             glDeleteShader(vertexShader);
             glDeleteShader(fragmentShader);
 
-            uniforms.transform = getUniform("uTransform");
-            uniforms.normalMatrix = getUniform("uNormalMatrix");
-            uniforms.texture0 = getUniform("uTexture");
-            uniforms.materialData.tiling = getUniform("uMaterialData.tiling");
-            uniforms.transformLightSpace = getUniform("uTransformLightSpace");
-            uniforms.debug.showShadowMap = getUniform("uDebug_ShowShadowMap");
-            setUniform(uniforms.materialData.tiling, glm::vec2(1, 1));
-            setUniform(uniforms.texture0, 0);
+            checkErrors_(__PRETTY_FUNCTION__);
+        }
 
-            setUniform(uniforms.debug.showShadowMap, 0);
+        namespace shaders
+        {
+            geometry_shader::geometry_shader(const std::string &vertexSource, const std::string &fragmentSource)
+                : shader::shader(vertexSource, fragmentSource)
+            {
+                uniforms.transform           = getUniform("uTransform");
+                uniforms.normalMatrix        = getUniform("uNormalMatrix");
+                uniforms.texture0            = getUniform("uTexture");
+                uniforms.materialData.tiling = getUniform("uMaterialData.tiling");
+                uniforms.transformLightSpace = getUniform("uTransformLightSpace");
+                setUniform(uniforms.materialData.tiling, glm::vec2(1, 1));
+                setUniform(uniforms.texture0, 0);
+            }
 
+            shadow_shader::shadow_shader(const std::string &vertexSource, const std::string &fragmentSource)
+                : shader::shader(vertexSource, fragmentSource)
+            {
+                uniforms.transformLightSpace = getUniform("uTransformLightSpace");
+            }
+
+            void geometry_shader_instance::use() const
+            {
+                type.use();
+                type.setUniform(type.uniforms.materialData.tiling, uniforms.materialData.tiling);
+            }
+
+            screen_shader::screen_shader(const std::string &vertexSource, const std::string &fragmentSource)
+                : shader::shader(vertexSource, fragmentSource)
+            {
+                uniforms.lighting.ambient     = getUniform("uLighting.ambient");
+                uniforms.lighting.directional = getUniform("uLighting.directional");
+
+                uniforms.texturePosition           = getUniform("gPosition");
+                uniforms.textureNormal             = getUniform("gNormal");
+                uniforms.textureDiffuse            = getUniform("gDiffuse");
+                uniforms.textureDepthColor         = getUniform("gDepthColor");
+                uniforms.textureShadowDepth        = getUniform("gShadowDepth");
+                uniforms.texturePositionLightSpace = getUniform("gPositionLightSpace");
+
+                setUniform(uniforms.texturePosition          , 0);
+                setUniform(uniforms.textureNormal            , 1);
+                setUniform(uniforms.textureDiffuse           , 2);
+                setUniform(uniforms.textureDepthColor        , 3);
+                setUniform(uniforms.textureShadowDepth       , 4);
+                setUniform(uniforms.texturePositionLightSpace, 5);
+
+                uniforms.debug.showShadowMap = getUniform("uDebug_ShowShadowMap");
+                setUniform(uniforms.debug.showShadowMap, 0);
+            }
+
+            void screen_shader_instance::use() const
+            {
+                type.use();
+                type.setUniform(type.uniforms.lighting.ambient, uniforms.lighting.ambient);
+                type.setUniform(type.uniforms.lighting.directional, uniforms.lighting.directional);
+                type.setUniform(type.uniforms.debug.showShadowMap, uniforms.debug.showShadowMap);
+            }
+
+            skybox_shader::skybox_shader(const std::string &vertexSource, const std::string &fragmentSource)
+                : shader::shader(vertexSource, fragmentSource)
+            {
+                uniforms.texture0 = getUniform("uTexture0");
+                uniforms.texture1 = getUniform("uTexture1");
+                uniforms.transform = getUniform("uTransform");
+                uniforms.tint       = getUniform("uTint");
+                uniforms.transition = getUniform("uTransition");
+
+                setUniform(uniforms.texture0, 0);
+                setUniform(uniforms.texture1, 0);
+            }
+
+            void skybox_shader_instance::use() const
+            {
+                type.use();
+                type.setUniform(type.uniforms.tint      , uniforms.tint);
+                type.setUniform(type.uniforms.transition, uniforms.transition);
+            }
         }
 
         void shader::use() const
@@ -392,59 +605,66 @@ namespace srd::core
 
         int shader::getUniform(const std::string &name) const
         {
-            return glGetUniformLocation(id, name.c_str());
+            auto x = glGetUniformLocation(id, name.c_str());
+            if(x < 0) { std::cerr << "\033[0;31mNo uniform called " << name << " exists\033[0;0m" << std::endl; }
+            return x;
         }
         void shader::setUniform(int location, int value) const
         {
+            if(location < 0) return;
             glUseProgram(id);
             glUniform1i(location, value);
         }
         void shader::setUniform(int location, bool value) const
         {
+            if(location < 0) return;
             glUseProgram(id);
             glUniform1i(location, value ? 1 : 0);
         }
         void shader::setUniform(int location, float value) const
         {
-            glUseProgram(id);
+            if(location < 0) return;
+            glUseProgram(id); 
             glUniform1f(location, value);
         }
         void shader::setUniform(int location, const glm::vec4 &value) const
         {
+            if(location < 0) return;
             glUseProgram(id);
             glUniform4f(location, value.x, value.y, value.z, value.w);
         }
         void shader::setUniform(int location, const glm::quat &value) const
         {
+            if(location < 0) return;
             glUseProgram(id);
             glUniform4f(location, value.x, value.y, value.z, value.w);
         }
         void shader::setUniform(int location, const glm::vec3 &value) const
         {
+            if(location < 0) return;
             glUseProgram(id);
             glUniform3f(location, value.x, value.y, value.z);
         }
         void shader::setUniform(int location, const glm::vec2 &value) const
         {
+            if(location < 0) return;
             glUseProgram(id);
             glUniform2f(location, value.x, value.y);
         }
         void shader::setUniform(int location, const glm::mat4 &value) const
         {
+            if(location < 0) return;
             glUseProgram(id);
             glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(value));
         }
         void shader::setUniform(int location, const glm::mat3 &value) const
         {
+            if(location < 0) return;
             glUseProgram(id);
             glUniformMatrix3fv(location, 1, GL_FALSE, glm::value_ptr(value));
         }
 
-        void shader_instance::use() const
-        {
-            type.use();
-            type.setUniform(type.uniforms.materialData.tiling, uniforms.materialData.tiling);
-        }
+        
 
 #pragma endregion
 #pragma region Mesh
@@ -487,11 +707,14 @@ namespace srd::core
             glBindVertexArray(0);
 
             elementCount = indices.size();
+
+            checkErrors_(__PRETTY_FUNCTION__);
         }
 
         void mesh::bind() const
         {
             glBindVertexArray(vao);
+            checkErrors_(__PRETTY_FUNCTION__);
         }
 
         mesh::~mesh()
@@ -518,6 +741,7 @@ namespace srd::core
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, data.width, data.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data);
                 glGenerateMipmap(GL_TEXTURE_2D);
             }
+            checkErrors_(__PRETTY_FUNCTION__);
         }
 
         void texture::bind(int unit)
@@ -537,8 +761,10 @@ namespace srd::core
             {
                 GL_TEXTURE_CUBE_MAP_POSITIVE_X,
                 GL_TEXTURE_CUBE_MAP_NEGATIVE_X,
+
                 GL_TEXTURE_CUBE_MAP_POSITIVE_Y,
                 GL_TEXTURE_CUBE_MAP_NEGATIVE_Y,
+                
                 GL_TEXTURE_CUBE_MAP_POSITIVE_Z,
                 GL_TEXTURE_CUBE_MAP_NEGATIVE_Z,
             };
@@ -553,20 +779,28 @@ namespace srd::core
 
             for(int i = 0; i < 6; ++i)
             {
+                if(!datas[i]->data) {
+                    logError(std::string("Bad texture for a cubemap's ") + "XXYYZZ"[i] + "+-+-+-"[i] + " (=null)");
+                }
+                //glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, data.width, data.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data);
                 glTexImage2D(types[i], 0, GL_RGB, datas[i]->width, datas[i]->height, 0, GL_RGBA,
                     GL_UNSIGNED_BYTE, datas[i]->data);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+                glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
                 glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
                 glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-            }   
+            }
+            checkErrors_(__PRETTY_FUNCTION__);
         }
 
         void cubemap::bind(int unit)
         {
             glActiveTexture(unit);
+            checkErrors_("before cube map");
             glBindTexture(GL_TEXTURE_CUBE_MAP, id);
+            checkErrors_(__PRETTY_FUNCTION__);
         }
 
         cubemap::~cubemap()
@@ -619,7 +853,7 @@ namespace srd::core
                                       math::transform &transform,
                                       mesh &mesh,
                                       texture &texture,
-                                      shader_instance &shader)
+                                      shaders::geometry_shader_instance &shader)
         {
             //? transform.update();
             mesh.bind();
@@ -726,17 +960,18 @@ namespace srd::core
             if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
                 std::cerr << "Framebuffer not complete!" << std::endl;
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            checkErrors_(__PRETTY_FUNCTION__);
         }
 
         gbuffer::~gbuffer()
         {
             glDeleteFramebuffers(1, &fbo);
         }
-        
+
         void deferred_renderer::begin()
         {
             glEnable(GL_DEPTH_TEST);
-            // glClearColor(0, 0, 0, 1);
+            glClearColor(0, 0, 0, 1);
             glViewport(0, 0, shadowBuffer.width, shadowBuffer.height);
             glBindFramebuffer(GL_FRAMEBUFFER, shadowBuffer.fbo);
             glEnable(GL_DEPTH_TEST);
@@ -749,43 +984,74 @@ namespace srd::core
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         }
 
-        void deferred_renderer::render(camera &camera,
-                                      math::transform &transform,
-                                      mesh &mesh,
-                                      texture &texture,
-                                      shader_instance &shader,
-                                      shader_instance &shadowShader,
-                                      const glm::mat4 &lightSpaceMatrix)
+        void deferred_renderer::render(camera &camera, const render_data &data)
         {
             // glCullFace(GL_FRONT);
+            // glDisable(GL_STENCIL_TEST);
+            // glEnable(GL_DEPTH_TEST);
+            // glDepthMask(GL_TRUE);
+
             glViewport(0, 0, shadowBuffer.width, shadowBuffer.height);
             glBindFramebuffer(GL_FRAMEBUFFER, shadowBuffer.fbo);
-            mesh.bind();
-            shadowShader.use();
-            shadowShader.type.setUniform(
-                shadowShader.type.uniforms.transformLightSpace,
-                lightSpaceMatrix * transform.matrix
+            data.mesh_.bind();
+            data.shadowShader.use();
+            data.shadowShader.setUniform(
+                data.shadowShader.uniforms.transformLightSpace,
+                data.lightSpaceMatrix * data.transform.matrix
             );
-            glDrawElements(GL_TRIANGLES, mesh.elementCount, GL_UNSIGNED_INT, 0);
+            glDrawElements(GL_TRIANGLES, data.mesh_.elementCount, GL_UNSIGNED_INT, 0);
 
             glCullFace(GL_BACK);
             glViewport(0, 0, width, height);
             glBindFramebuffer(GL_FRAMEBUFFER, buffer.fbo);
-            mesh.bind();
-            shader.use();
-            texture.bind(0);
-            glm::mat4 normalMatrix = transform.matrix;
-            shader.type.setUniform(shader.type.uniforms.transformLightSpace, lightSpaceMatrix * transform.matrix);
-            shader.type.setUniform(shader.type.uniforms.normalMatrix, normalMatrix);
-            shader.type.setUniform(shader.type.uniforms.transform, camera.projection(transform.matrix));
-            glDrawElements(GL_TRIANGLES, mesh.elementCount, GL_UNSIGNED_INT, 0);
+            data.mesh_.bind();
+            data.shader.use();
+            data.texture_.bind(0);
+            glm::mat4 normalMatrix = data.transform.matrix;
+            data.shader.type.setUniform(data.shader.type.uniforms.transformLightSpace, data.lightSpaceMatrix * data.transform.matrix);
+            data.shader.type.setUniform(data.shader.type.uniforms.normalMatrix, normalMatrix);
+            data.shader.type.setUniform(data.shader.type.uniforms.transform, camera.projection(data.transform.matrix));
+            glDrawElements(GL_TRIANGLES, data.mesh_.elementCount, GL_UNSIGNED_INT, 0);
         }
 
-        void deferred_renderer::light(gfx::shader &lightPassShader, gfx::mesh &quadMesh)
+        void deferred_renderer::sky(camera &camera, skybox &sky, shaders::skybox_shader_instance &shader)
+        {
+            glCullFace(GL_FRONT);
+            glDepthFunc(GL_LEQUAL);
+            glViewport(0, 0, width, height);
+            glBindFramebuffer(GL_FRAMEBUFFER, buffer.fbo);
+            checkErrors_("sky: before bind");
+
+            // glm::mat3 rot = glm::mat3_cast(camera.transform.rotation);
+            // glm::mat4 tr  = camera.transform.matrix;
+            // tr
+
+            sky.skyMesh.bind();
+            shader.use();
+            sky.texture.bind(GL_TEXTURE0); //  * sky.transform
+            shader.type.setUniform(
+                shader.type.uniforms.transform,
+                camera.projMatrix *
+                camera.viewMatrix *
+                camera.transform.matrix *
+                glm::mat4(glm::inverse(glm::mat3_cast(camera.transform.rotation))));
+
+            glDrawElements(GL_TRIANGLES, sky.skyMesh.elementCount, GL_UNSIGNED_INT, 0);
+            glDepthFunc(GL_LESS);
+            checkErrors_(__PRETTY_FUNCTION__);
+        }
+
+        void deferred_renderer::light(shaders::screen_shader_instance &lightPassShader, gfx::mesh &quadMesh)
         {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             glDisable(GL_DEPTH_TEST);
+            // glDepthMask(GL_FALSE);
+            // glEnable(GL_STENCIL_TEST);
+            // glStencilMask(0xFF);
+            // glStencilFunc(GL_ALWAYS, 1, 0xFF);
+            // glStencilMask(0xFF);
+            // glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE); 
 
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, buffer.texturePosition);
@@ -807,37 +1073,17 @@ namespace srd::core
 
             quadMesh.bind();
             lightPassShader.use();
-            lightPassShader.setUniform(lightPassShader.uniforms.debug.showShadowMap, this->debugBuffers);
             glDrawElements(GL_TRIANGLES, quadMesh.elementCount, GL_UNSIGNED_INT, 0);
         }
 
         void skybox::update(const glm::vec3 &cameraPosition)
         {
-            transform = glm::translate(glm::mat4(1.0f), cameraPosition);
-            transform = glm::scale(transform, scale);
+            // transform = glm::mat4(1.0f);
+            // transform = glm::translate(glm::mat4(1.0f), cameraPosition);
+            transform = glm::scale(glm::mat4(1.0f), scale);
         }
 
-        void skybox::render(camera &camera, shader_instance &shader, deferred_renderer &renderer)
-        {
-            glViewport(0, 0, renderer.width, renderer.height);
-            glBindFramebuffer(GL_FRAMEBUFFER, renderer.buffer.fbo);
-
-            GLint oldCullFaceMode;
-            glGetIntegerv(GL_CULL_FACE_MODE, &oldCullFaceMode);
-            GLint oldDepthFuncMode;
-            glGetIntegerv(GL_DEPTH_FUNC, &oldDepthFuncMode);
-
-            glCullFace(GL_FRONT);
-            glDepthFunc(GL_LEQUAL);
-
-            texture.bind(0);
-            shader.type.setUniform(shader.type.uniforms.transform, camera.projection(transform));
-            skyMesh.bind();
-            glDrawElements(GL_TRIANGLES, skyMesh.elementCount, GL_UNSIGNED_INT, 0);
-
-            glCullFace(oldCullFaceMode);
-            glDepthFunc(oldDepthFuncMode);
-        }
+        
     }
 }
 
@@ -852,8 +1098,10 @@ namespace srd::core::window
 {
     void show(window &r,
               callable<float> auto update,
-              callable<int, int> auto resize,
-              callable<int, int, int, int> auto keypress)
+              callable<int, int> auto resize, bool bind_resize,
+              callable<int, int, int, int> auto keypress, bool bind_keypress,
+              callable auto before_render,
+              callable auto after_render)
     {
         static void *func_resize_pointer = nullptr;
         static void *func_key_pointer = nullptr;
@@ -875,21 +1123,24 @@ namespace srd::core::window
             resize(w, h);
         }
 
-        glfwSetFramebufferSizeCallback(win, [](GLFWwindow* win, int width, int height){
-            glViewport(0, 0, width, height);
-            (*(decltype(resize)*)func_resize_pointer)(width, height);
-        });
+        if(bind_resize)
+            glfwSetFramebufferSizeCallback(win, [](GLFWwindow* win, int width, int height){
+                glViewport(0, 0, width, height);
+                (*(decltype(resize)*)func_resize_pointer)(width, height);
+            });
         
-        glfwSetKeyCallback(win, [](GLFWwindow* window, int key, int scancode, int action, int mods){
-            // const char *key_name = glfwGetKeyName(key, 0);
-            // if(action == GLFW_PRESS) printf("Pressed %s!\n", key_name);
-            // if(action == GLFW_RELEASE) printf("Released %s!\n", key_name);
-            (*(decltype(keypress)*)func_key_pointer)(key, scancode, action, mods);
-        });
+        if(bind_keypress)
+            glfwSetKeyCallback(win, [](GLFWwindow* window, int key, int scancode, int action, int mods){
+                // const char *key_name = glfwGetKeyName(key, 0);
+                // if(action == GLFW_PRESS) printf("Pressed %s!\n", key_name);
+                // if(action == GLFW_RELEASE) printf("Released %s!\n", key_name);
+                (*(decltype(keypress)*)func_key_pointer)(key, scancode, action, mods);
+            });
 
         glClearColor(0.f, 0.f, 0.f, 1.f);
         while(!glfwWindowShouldClose(win))
         {
+            before_render();
             float currentTime = glfwGetTime();
             float delta = currentTime - lastTime;
 
@@ -909,6 +1160,8 @@ namespace srd::core::window
             
             update(delta);
             
+            after_render();
+
             glfwSwapBuffers(win);
             glfwPollEvents();
 

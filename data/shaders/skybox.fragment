@@ -1,8 +1,25 @@
 #version 410 core
-out vec4 oColor;
+layout(location = 0) out vec4 gPosition;
+layout(location = 1) out vec4 gNormal;
+layout(location = 2) out vec4 gDiffuse;
+layout(location = 3) out vec4 gDepthColor;
+layout(location = 4) out vec4 gPositionLightSpace;
+
 in vec3 sTexCoord;
-uniform samplerCube uTexture;
+uniform samplerCube uTexture0;
+uniform samplerCube uTexture1;
+uniform vec4 uTint;
+uniform float uTransition;
+
+const float INF = 1.0 / 0.0;
+const vec4 defaultSkyColor = vec4(0.39, 0.61, 1, 1);
 
 void main() {
-    oColor = texture(uTexture, sTexCoord);
+    vec4 tex0 = texture(uTexture0, sTexCoord); // vec3(1, 0, 0)
+    vec4 tex1 = texture(uTexture1, sTexCoord);
+    vec4 color = tex0; //defaultSkyColor;//mix(tex0, tex1, vec4(uTransition));
+    gDiffuse = color; //defaultSkyColor; //vec4(sTexCoord, 1.0);//texture(uTexture, sTexCoord); //vec4(0.11, 0.42, 0.95, 1); //
+    gPositionLightSpace = vec4(0, 0, 0, 1);
+    gDepthColor = vec4(vec3(1), 1);
+    gNormal = vec4(vec3(0), 1e20);
 }

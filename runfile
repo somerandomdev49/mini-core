@@ -10,12 +10,17 @@
 # A macbook from 2013 has its problems...
 
 libs := -lglfw3 -framework Cocoa -framework OpenGL -framework IOKit
+includes := -I3rd-party/imgui -I3rd-party/include -I3rd-party/rigidbox/include
+includes_tmp := -I../3rd-party/imgui -I../3rd-party/include -I../3rd-party/rigidbox/include
+# -I3rd-party/reactphysics3d/include
 default:
 
     tmp=CPLUS_INCLUDE_PATH
     export CPLUS_INCLUDE_PATH=/usr/local/Cellar/gcc/10.2.0/include/c++/10.2.0
 
-    %%myfilter g++-10 *.cpp 3rd-party/glad.c -o main -std=c++20 %libs -fdiagnostics-color -I3rd-party/include
+    build %@ g++-10 -c ../*.cpp -std=c++20 %includes_tmp -fdiagnostics-color
+    %%myfilter g++-10 build/*.o %libs -o main
+
     export CPLUS_INCLUDE_PATH=$tmp
 
     myfilter := s => s.split('\n').filter(x => !(/^ld: warning: text-based stub file .*/).test(x)).join('\n')
@@ -24,3 +29,7 @@ default:
 # might be useful for you...
 countlines:
     scc --exclude-dir=data,3rd-party,.vscode --include-ext=hpp,cpp
+build-libs:
+    mkdir -p build/
+    build %@ g++-10 -c ../3rd-party/rigidbox/source/*.cpp -std=c++20 %includes_tmp
+    build %@ g++-10 -c ../3rd-party/imgui/*.cpp ../3rd-party/glad.c -std=c++20 %includes_tmp

@@ -14,6 +14,8 @@ The framework providers a deferred renderer with support for simple directional 
     * [`glfw`](https://www.glfw.org/)
     * [`glad`](https://glad.dav1d.de/)
 * `main.cpp` - an example/tester that uses `srd::core`
+  * depends on:
+    * [`imgui`](https://github.com/ocornut/imgui/)
 * `util.hpp` - what `main.cpp` uses to load models and textures
   * depends on:
     * [`tiny_obj_loader.h`](https://github.com/tinyobjloader/tinyobjloader/)
