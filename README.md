@@ -38,7 +38,7 @@ The header file uses the same guard as most of `stb`'s headers do:
 
 <h3 align="center">Notes</h3>
 
-Started working on *`July, 20th 2021`*.
+Started working on *`July 20th, 2021`*.
 
 <!--
 
