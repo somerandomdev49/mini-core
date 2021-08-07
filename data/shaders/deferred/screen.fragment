@@ -5,6 +5,9 @@ in vec2 sTexCoord;
 
 struct Lighting {
     float ambient;
+    vec3 ambientTint;
+    vec3 shadowTint;
+    vec3 directionalTint;
     vec4 directional; // xyz -> location, w -> intensity
 };
 
@@ -31,7 +34,7 @@ float linearizeDepth(float depth)  {
     return (2.0 * near * far) / (far + near - z * (far - near));	
 }
 
-const int sampleCount = 2;
+const int sampleCount = 4;
 
 float calculateShadow(vec4 fragPosLightSpace, vec3 normal, float mult) {
     vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
@@ -51,9 +54,9 @@ float calculateShadow(vec4 fragPosLightSpace, vec3 normal, float mult) {
             shadow += currentDepth - bias > pcfDepth ? 1.0 : 0.0;        
         }    
     }
-    shadow /= 9.0;
+    shadow /= sampleCount * sampleCount;
 
-    return clamp((1 - shadow) * mult, 0.3, 1); //currentDepth - bias > closestDepth ? uLighting.ambient : 1.0;
+    return clamp((1 - shadow) * mult, uLighting.ambient, 1); //currentDepth - bias > closestDepth ? uLighting.ambient : 1.0;
 }
 
 const float N = 4;
@@ -66,14 +69,18 @@ void main() {
     vec4 diffuse = texture(gDiffuse, -sTexCoord);
     float depth = texture(gDepthColor, -sTexCoord).r;
     float shadowDepth = texture(gShadowDepth, -sTexCoord).r;
-    //depth * vec4(0.1, 0.1, 0.3, 1) * 
-    // float depthLinear = linearizeDepth(depth);
-    // float shadowMult = pow(depthLinear, N);
+
+    // vec3 shadowColor = 1 - uLighting.directional.rgb;
+    float shadowValue     = clamp(calculateShadow(fragPosLightSpace, normal, 1.0) * normalValue.w, 0, 1);
+    float selfShadowValue = directionalLight(normal, uLighting.directional, uLighting.ambient, normalValue.w);
+    float totalShadow = (shadowValue * selfShadowValue);
+    // [0; 1] -> [X; Y] = s
+    // (1-s - lightColor
     
-    oColor = uDebug_ShowShadowMap
-           ? vec4(vec3(shadowDepth), 1.0)
-           : clamp(calculateShadow(fragPosLightSpace, normal, 1.0) * normalValue.w, 0, 1)
-             * diffuse
-             * directionalLight(normal, uLighting.directional, uLighting.ambient, normalValue.w)
-           ;
+    vec3 color =
+        // ((1 - clamp(shadowValue * selfShadowValue, 0, 1)) - uLighting.directionalTint) *
+        totalShadow * uLighting.directionalTint * diffuse.rgb;// *
+        //((1 - selfShadowValue) - uLighting.directionalTint);
+    
+    oColor = vec4(color, 1.0);
 }

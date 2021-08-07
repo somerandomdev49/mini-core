@@ -7,29 +7,45 @@
 
 
 
-# A macbook from 2013 has its problems...
+# i dont like makefiles so i made my own very weird thing
+
+prefixWithDotDot := x => x.split(' ').filter(y=>y.length).map(y=>'-I../'+y.slice(2)).join(' ');
 
 libs := -lglfw3 -framework Cocoa -framework OpenGL -framework IOKit
 includes := -I3rd-party/imgui -I3rd-party/include -I3rd-party/rigidbox/include
-includes_tmp := -I../3rd-party/imgui -I../3rd-party/include -I../3rd-party/rigidbox/include
+includes_tmp := %%prefixWithDotDot(%includes)
+flags := -Wno-missing-field-initializers -Wno-unused-parameter -Wno-unused-function -Wno-unused-variable -Wno-unknown-pragmas
 # -I3rd-party/reactphysics3d/include
+
+CXX := g++-10
+
 default:
 
+# MacOS's default system headers don't have support for C++20, so I use these instead
     tmp=CPLUS_INCLUDE_PATH
     export CPLUS_INCLUDE_PATH=/usr/local/Cellar/gcc/10.2.0/include/c++/10.2.0
 
-    build %@ g++-10 -c ../*.cpp -std=c++20 %includes_tmp -fdiagnostics-color
-    %%myfilter g++-10 build/*.o %libs -o main
+# The `<dir> %@ <command>` runs a command in a specific directory.
+    build %@ %CXX -c ../*.cpp -std=c++20 %includes_tmp -fdiagnostics-color -Wall -Wextra %flags
 
+# `%~funcName <command>` passes the output of the command though a function.
+# in this case, macos's linker shows warnings when linking with some frameworks,
+# so I simply filter out these warnings.
+    %~linkerFilter %CXX build/*.o %libs -o main
+
+# Revert the system headers' path.
     export CPLUS_INCLUDE_PATH=$tmp
 
-    myfilter := s => s.split('\n').filter(x => !(/^ld: warning: text-based stub file .*/).test(x)).join('\n')
+# The linker filter.
+linkerFilter := s => s.split('\n').filter(x => !(/^ld: warning: text-based stub file .*/).test(x)).join('\n')
 
 # counting lines thing:
 # might be useful for you...
 countlines:
     scc --exclude-dir=data,3rd-party,.vscode --include-ext=hpp,cpp
+
+# The build libraries job. This is ran only once oer eternity.
 build-libs:
     mkdir -p build/
-    build %@ g++-10 -c ../3rd-party/rigidbox/source/*.cpp -std=c++20 %includes_tmp
-    build %@ g++-10 -c ../3rd-party/imgui/*.cpp ../3rd-party/glad.c -std=c++20 %includes_tmp
+    build %@ %CXX -c ../3rd-party/rigidbox/source/*.cpp -std=c++20 %includes_tmp
+    build %@ %CXX -c ../3rd-party/imgui/*.cpp ../3rd-party/glad.c -std=c++20 %includes_tmp

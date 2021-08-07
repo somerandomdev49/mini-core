@@ -23,6 +23,9 @@ namespace srd::core
             ~window();
 
             bool keyPressed(int key);
+
+            bool isCursorLocked = false;
+            void lockCursor(bool lock);
         };
     }
 
@@ -123,6 +126,8 @@ namespace srd::core
                     {
                         int directional;
                         int ambient;
+
+                        int directionalTint;
                     } lighting;
 
                     struct
@@ -143,6 +148,8 @@ namespace srd::core
                     {
                         glm::vec4 directional = { 0, 1.f, 0, 1.f };
                         float ambient = 0.2f;
+
+                        glm::vec3 directionalTint = { 1.0f, 1.0f, 1.0f };
                     } lighting;
 
                     struct
@@ -213,7 +220,7 @@ namespace srd::core
 
             unsigned int id;
 
-            texture(const data &data);
+            texture(const data &data, bool sRGB = true);
             void bind(int unit);
         };
 
@@ -307,9 +314,20 @@ namespace srd::core
             sbuffer shadowBuffer;
             int width, height;
             bool debugBuffers;
+
+            /** Clear wrapper function for when no other rendering functions are called. */
+            void clear();
+
+            /** Must be called before any rendering functions. */
             void begin();
+
+            /** Renders data */
             void render(camera &camera, const render_data &data);
+
+            /** Renders a skybox. */
             void sky(camera &camera, skybox &sky, shaders::skybox_shader_instance &shader);
+
+            /** Lighting pass. */
             void light(shaders::screen_shader_instance &lightPassShader, gfx::mesh &quadMesh);
         };
 
@@ -395,6 +413,17 @@ namespace srd::core
         void log(const char *message)
         {
             std::cout << message << std::endl;
+        }
+
+        
+        void window::lockCursor(bool lock)
+        {
+            if(isCursorLocked == lock) return;
+            isCursorLocked = lock;
+            if(lock)
+                glfwSetInputMode((GLFWwindow*)win, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            else
+                glfwSetInputMode((GLFWwindow*)win, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
         }
 
         window::window(int width, int height, const char *title)
@@ -545,6 +574,7 @@ namespace srd::core
             {
                 uniforms.lighting.ambient     = getUniform("uLighting.ambient");
                 uniforms.lighting.directional = getUniform("uLighting.directional");
+                uniforms.lighting.directionalTint = getUniform("uLighting.directionalTint");
 
                 uniforms.texturePosition           = getUniform("gPosition");
                 uniforms.textureNormal             = getUniform("gNormal");
@@ -569,6 +599,7 @@ namespace srd::core
                 type.use();
                 type.setUniform(type.uniforms.lighting.ambient, uniforms.lighting.ambient);
                 type.setUniform(type.uniforms.lighting.directional, uniforms.lighting.directional);
+                type.setUniform(type.uniforms.lighting.directionalTint, uniforms.lighting.directionalTint);
                 type.setUniform(type.uniforms.debug.showShadowMap, uniforms.debug.showShadowMap);
             }
 
@@ -670,7 +701,7 @@ namespace srd::core
 #pragma region Mesh
         mesh::mesh(const std::vector<vertex> &vertices, const std::vector<unsigned int> &indices)
         {
-            // std::cout << "mesh ctor" << std::endl;
+            std::cout << "Mesh Ctor" << std::endl;
             elementCount = 0;
             glGenBuffers(1, &vbo);
             glGenBuffers(1, &ebo);
@@ -725,9 +756,9 @@ namespace srd::core
         }
 #pragma endregion
 #pragma region Texture
-        texture::texture(const texture::data &data)
+        texture::texture(const texture::data &data, bool sRGB)
         {
-            // std::cout << "texture ctor" << std::endl;
+            std::cout << "Texture Ctor!" << std::endl;
             glGenTextures(1, &id);
             glBindTexture(GL_TEXTURE_2D, id);
 
@@ -738,7 +769,7 @@ namespace srd::core
             
             if(data.data)
             {
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, data.width, data.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data);
+                glTexImage2D(GL_TEXTURE_2D, 0, sRGB?GL_SRGB:GL_RGB, data.width, data.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data);
                 glGenerateMipmap(GL_TEXTURE_2D);
             }
             checkErrors_(__PRETTY_FUNCTION__);
@@ -783,7 +814,7 @@ namespace srd::core
                     logError(std::string("Bad texture for a cubemap's ") + "XXYYZZ"[i] + "+-+-+-"[i] + " (=null)");
                 }
                 //glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, data.width, data.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data);
-                glTexImage2D(types[i], 0, GL_RGB, datas[i]->width, datas[i]->height, 0, GL_RGBA,
+                glTexImage2D(types[i], 0, GL_SRGB, datas[i]->width, datas[i]->height, 0, GL_RGBA,
                     GL_UNSIGNED_BYTE, datas[i]->data);
 
                 glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -968,6 +999,11 @@ namespace srd::core
             glDeleteFramebuffers(1, &fbo);
         }
 
+        void deferred_renderer::clear()
+        {
+            glClear(GL_COLOR_BUFFER_BIT);
+        }
+
         void deferred_renderer::begin()
         {
             glEnable(GL_DEPTH_TEST);
@@ -986,11 +1022,7 @@ namespace srd::core
 
         void deferred_renderer::render(camera &camera, const render_data &data)
         {
-            // glCullFace(GL_FRONT);
-            // glDisable(GL_STENCIL_TEST);
-            // glEnable(GL_DEPTH_TEST);
-            // glDepthMask(GL_TRUE);
-
+            glDisable(GL_CULL_FACE);
             glViewport(0, 0, shadowBuffer.width, shadowBuffer.height);
             glBindFramebuffer(GL_FRAMEBUFFER, shadowBuffer.fbo);
             data.mesh_.bind();
@@ -1000,6 +1032,7 @@ namespace srd::core
                 data.lightSpaceMatrix * data.transform.matrix
             );
             glDrawElements(GL_TRIANGLES, data.mesh_.elementCount, GL_UNSIGNED_INT, 0);
+            glEnable(GL_CULL_FACE);
 
             glCullFace(GL_BACK);
             glViewport(0, 0, width, height);
@@ -1046,6 +1079,7 @@ namespace srd::core
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             glDisable(GL_DEPTH_TEST);
+            glEnable(GL_FRAMEBUFFER_SRGB); 
             // glDepthMask(GL_FALSE);
             // glEnable(GL_STENCIL_TEST);
             // glStencilMask(0xFF);
@@ -1074,6 +1108,7 @@ namespace srd::core
             quadMesh.bind();
             lightPassShader.use();
             glDrawElements(GL_TRIANGLES, quadMesh.elementCount, GL_UNSIGNED_INT, 0);
+            glDisable(GL_FRAMEBUFFER_SRGB);
         }
 
         void skybox::update(const glm::vec3 &cameraPosition)
@@ -1096,19 +1131,26 @@ size_t std::hash<srd::core::gfx::vertex>::operator()(srd::core::gfx::vertex cons
 
 namespace srd::core::window
 {
+    /**
+     * Must not be called while another 'show' is still running!
+     * Preferably called once.
+     */
     void show(window &r,
               callable<float> auto update,
               callable<int, int> auto resize, bool bind_resize,
               callable<int, int, int, int> auto keypress, bool bind_keypress,
+              callable<double, double> auto mousemove, bool bind_mousemove,
               callable auto before_render,
               callable auto after_render)
     {
         static void *func_resize_pointer = nullptr;
         static void *func_key_pointer = nullptr;
+        static void *func_mousemove_pointer = nullptr;
+        static int winWidth = 1, winHeight = 1;
 
         auto win = (GLFWwindow*)r.win;
         glEnable(GL_DEPTH_TEST);
-        // glEnable(GL_CULL_FACE);
+        glEnable(GL_CULL_FACE);
 
         auto titleLength = std::strlen(r.title);
         float lastTime = 0.f, lastFpsTime = 0.f;
@@ -1116,6 +1158,10 @@ namespace srd::core::window
 
         func_resize_pointer = &resize;
         func_key_pointer = &keypress;
+        func_mousemove_pointer = &mousemove;
+
+        winWidth  = r.width;
+        winHeight = r.height;
 
         {
             int w, h;
@@ -1124,17 +1170,22 @@ namespace srd::core::window
         }
 
         if(bind_resize)
-            glfwSetFramebufferSizeCallback(win, [](GLFWwindow* win, int width, int height){
+            glfwSetFramebufferSizeCallback(win, [](GLFWwindow *win, int width, int height) {
                 glViewport(0, 0, width, height);
-                (*(decltype(resize)*)func_resize_pointer)(width, height);
+                (*(decltype(resize)*)func_resize_pointer)(winWidth, winHeight);
             });
         
         if(bind_keypress)
-            glfwSetKeyCallback(win, [](GLFWwindow* window, int key, int scancode, int action, int mods){
+            glfwSetKeyCallback(win, [](GLFWwindow *win, int key, int scancode, int action, int mods) {
                 // const char *key_name = glfwGetKeyName(key, 0);
                 // if(action == GLFW_PRESS) printf("Pressed %s!\n", key_name);
                 // if(action == GLFW_RELEASE) printf("Released %s!\n", key_name);
                 (*(decltype(keypress)*)func_key_pointer)(key, scancode, action, mods);
+            });
+        
+        if(bind_mousemove)
+            glfwSetCursorPosCallback(win, [](GLFWwindow *win, double x, double y) {
+                (*(decltype(mousemove)*)func_mousemove_pointer)(x / winWidth, y / winHeight);
             });
 
         glClearColor(0.f, 0.f, 0.f, 1.f);

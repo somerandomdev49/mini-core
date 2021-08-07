@@ -3,6 +3,7 @@ main
 
 # why?!
 */**/.DS_Store
+.DS_Store
 
 # do i need?
 3rd-party/include/glm/test
@@ -21,3 +22,4 @@ my-things
 3rd-party/qu3e
 3rd-party/reactphysics3d
 3rd-party/rigidbox
+3rd-party/bulletphysics

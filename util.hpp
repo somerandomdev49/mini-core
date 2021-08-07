@@ -13,11 +13,12 @@
 
 std::string readFile(const char *path)
 {
+    srd::log::cout << "Reading file '" << path << "'..." << srd::log::endl;
     using namespace srd;
     std::string s;
     std::ifstream ifs(path);
     if(!ifs.is_open()) {
-        log::cerr << "Could not read file at '" << path << "'!" << log::endl;
+        srd::log::cerr << "Could not read file at '" << path << "'!" << srd::log::endl;
         return "";
     }
     std::stringstream ss;
@@ -29,13 +30,14 @@ std::string readFile(const char *path)
 
 srd::core::gfx::texture::data readTexture(const std::string &path, bool flip = false)
 {
+    srd::log::cout << "Reading texture '" << path << "'..." << srd::log::endl;
     using namespace srd;
     int width, height, nrChannels;
     stbi_set_flip_vertically_on_load(flip ? 0 : 1);
     unsigned char *data = stbi_load(path.c_str(), &width, &height, &nrChannels, 4);
     if(!data)
     {
-        log::cerr << "Failed to read image at '" << path << "'!"<< log::endl;
+        srd::log::cerr << "Failed to read image at '" << path << "'!"<< srd::log::endl;
         std::cout << "Reason:\n  " << stbi_failure_reason() << std::endl;
     }
     return { .width = width, .height = height, .channels = nrChannels, .data = data };
@@ -48,11 +50,12 @@ void deleteTexture(const srd::core::gfx::texture::data &data)
 
 void readMesh(const char *path, std::vector<srd::core::gfx::vertex> &vertices, std::vector<unsigned int> &indices)
 {
+    srd::log::cout << "Reading mesh '" << path << "'..." << srd::log::endl;
     using namespace srd;
     std::ifstream ifs { path };
     if(!ifs.is_open())
     {
-        log::cerr << "Could not load mesh at '" << path << "'!" << log::endl;
+        srd::log::cerr << "Could not load mesh at '" << path << "'!" << srd::log::endl;
         return;
     }
 
@@ -67,11 +70,11 @@ void readMesh(const char *path, std::vector<srd::core::gfx::vertex> &vertices, s
     bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, &ifs);
 
     if(!warn.empty()) {
-        log::cwrn << "Warning: " << warn << log::endl;
+        srd::log::cwrn << "Warning: " << warn << srd::log::endl;
     }
 
     if(!err.empty()) {
-        log::cerr << "Error: " << err << log::endl;
+        srd::log::cerr << "Error: " << err << srd::log::endl;
         // std::printf("\033[0;31mError: '%s'!\033[0;0m\n", path.c_str());
         ifs.close();
         return;
@@ -113,7 +116,8 @@ void readMesh(const char *path, std::vector<srd::core::gfx::vertex> &vertices, s
     }
 
     // bool shouldLog = indices.size() < 100;
-    log::cout << "Mesh info: index count: " << indices.size() << ", vertex count: " << vertices.size() << log::endl;
+    srd::log::cout << "Mesh info: index count: " <<
+        indices.size() << ", vertex count: " << vertices.size() << srd::log::endl;
     
     // if(shouldLog) log::sec(log::call);
 
