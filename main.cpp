@@ -1,6 +1,8 @@
 // Example usage of srd::core
 // NB: This is bad code, I tried to make it somewhat good, but it is definetly not a good way to make a game.
 
+// #define GLM_FORCE_LEFT_HANDED
+
 // Standard Library
 #include <unordered_map>
 #include <fstream>
@@ -16,6 +18,7 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 #include <RigidBox/RigidBox.h>
+#include <reactphysics3d/reactphysics3d.h>
 
 // Mini-Core
 #define SRD_CORE_IMPLEMENTATION
@@ -36,9 +39,12 @@
 #include "log.hpp"
 // Utilities (loadTexture, loadMesh, ...)
 #include "util.hpp"
+// Convert values from physics libs.
+#include "physics.hpp"
 
 // Less characters.
 using namespace srd;
+namespace rp3d = reactphysics3d;
 
 /** Converts a 2d vector to a string (format is "[x] [y]") */
 std::string vectorToString(const glm::vec2 &v2)
@@ -115,7 +121,7 @@ V getOrDefault(const C<K,V,Args...>& m, K const& key, const V & defval)
     return it->second;
 }
 
-/** Value information for configuration. */
+/** Value information for configuration. NOTE: Basically anything a value in a config file can be.*/
 struct ValueInfo
 {
     enum Type
@@ -158,9 +164,11 @@ public:
     static inline core::gfx::shaders::shadow_shader *shadowShader = nullptr;
     static inline glm::mat4 *lightSpaceMatrix = nullptr;
 
-    static inline rbVec3 GRAVITY = { 0, -1.0f, 0 };
-    static inline rbEnvironment *physicsEnv = nullptr;
+    // static inline rbVec3 GRAVITY = {0, -1.0f, 0};
+    // static inline rbEnvironment *physicsEnv = nullptr;
 
+    static inline rp3d::PhysicsCommon *physicsCommon;
+    static inline rp3d::PhysicsWorld *physicsWorld;
     static inline core::window::window *window;
 };
 
@@ -327,36 +335,12 @@ public:
     EC_STATIC_CREATE(ECStaticMesh);
 };
 
-/** Converts a Rigidbox vector to a glm vector */
-glm::vec3 rb2glm(const rbVec3 &v)
-{ return { v.x, v.y, v.z }; }
-
-/** Converts a Rigidbox matrix to a glm quaternion */
-glm::quat rb2glm(const rbMtx3 &v)
-{
-    return glm::quat_cast(glm::mat3 { rb2glm(v.r[0]), rb2glm(v.r[1]), rb2glm(v.r[2]) });
-}
-
-/** Converts a glm vector to a Rigidbox vector */
-rbVec3 glm2rb(const glm::vec3 &v)
-{ return { v.x, v.y, v.z }; }
-
-/** Converts a glm matrix to a Rigidbox matrix */
-rbMtx3 glm2rb(const glm::mat3 &v)
-{
-    rbMtx3 m;
-    m.r[0] = glm2rb(v[0]);
-    m.r[1] = glm2rb(v[1]);
-    m.r[2] = glm2rb(v[2]);
-    return m;
-}
 
 /** Represent an entity that physics is applied to.  */
 class ECRigidBody : public EntityComponent
 {
-    rbEnvironment *env;
-    rbRigidBody rb;
-    rbVec3 gravity;
+    rp3d::PhysicsWorld *world;
+    rp3d::RigidBody *rb;
 
     glm::vec3 offset;
 public:
@@ -368,51 +352,80 @@ public:
         ResourceManager &resourceManager)
     {
         log::cout << "ECRigidBody::load(); entity = " << entity << log::endl; // entity is NULL!!!
-        env = ResourceGlobals::physicsEnv;
+        world = ResourceGlobals::physicsWorld;
+        auto common = ResourceGlobals::physicsCommon;
+
+        // Initial transform:
+        rb = world->createRigidBody(rp3d::Transform(
+            rp3d::Vector3(0, 0, 0),
+            rp3d::Quaternion::identity()
+        ));
 
         log::cout << "setting up size & static" << log::endl;
         auto size = info["rigidbody.size"].valVec3;
         auto isStatic = info["rigidbody.static"].valInt; // TODO Booleans
 
-        log::cout << "set parameter" << log::endl;
-        rb.SetShapeParameter(
-            size.x * size.y * size.z,
-            size.x, size.y, size.z,
-            0.1f, 0.01f);
+        if(isStatic) rb->setType(rp3d::BodyType::STATIC);
+        
 
-        log::cout << "isStatic enable attr." << log::endl;
-        if(isStatic) rb.EnableAttribute(rbRigidBody::Attribute_Fixed);
-        env->Register(&rb);
+        // log::cout << "set parameter" << log::endl;
+        // rb.SetShapeParameter(
+        //     size.x * size.y * size.z,
+        //     size.x, size.y, size.z,
+        //     0.1f, 0.1f);
 
-        this->offset = info["rigidbody.offset"].valVec3;
-        rb.SetPosition(glm2rb(entity->transform.position + offset * entity->transform.rotation));
-        rb.SetOrientation(glm2rb(glm::mat3_cast(entity->transform.rotation)));
+        // log::cout << "isStatic enable attr." << log::endl;
+        // if(isStatic) rb.EnableAttribute(rbRigidBody::Attribute_Fixed);
+        // env->Register(&rb);
+
+        // this->offset = info["rigidbody.offset"].valVec3;
+        // rb.SetPosition(glm2rb(entity->transform.position + offset * entity->transform.rotation));
+        // rb.SetOrientation(glm2rb(glm::mat3_cast(entity->transform.rotation)));
     }
     
     virtual void update(float dt)
     {
-        rb.SetForce(ResourceGlobals::GRAVITY);
+        // rb.SetForce(ResourceGlobals::GRAVITY);
     }
 
     virtual void afterUpdate(float dt)
     {
         // puts("Updating physics object");
-        entity->transform.rotation = rb2glm(rb.Orientation());
-        entity->transform.position = rb2glm(rb.Position()) - offset * entity->transform.rotation;
-        // Removes the offset applied before!              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-        entity->transform.update();
+        
+        // // TODO: find a faster way to do this!!!
+        // glm::quat rot = rb2glm(rb.Orientation());
+        // glm::vec3 eulerPrev = glm::eulerAngles(entity->transform.rotation);
+        // glm::vec3 euler = glm::eulerAngles(rot);
+        // rot = glm::quat(glm::vec3(eulerPrev.x, euler.y, eulerPrev.z)); // Only allow rotation on Y axis.
+
+        // entity->transform.rotation = rot;
+        // rb.SetOrientation(glm2rb(glm::mat3_cast(rot)));
+        // entity->transform.position = rb2glm(rb.Position()) - offset * entity->transform.rotation;
+        // // Removes the offset applied before!              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        
+        // entity->transform.update();
     }
     
     void addForce(const glm::vec3 &force)
     {
-        rb.AddForce(glm2rb(force));
+        rb->applyForceToCenterOfMass(physics::glm2rp3d(force));
+    }
+
+    /** Change the position of an object with respect to collisions.
+     * NOTE: transform.position is not updated until the next loop
+     **/
+    void setPositionColliding(const glm::vec3 &newPosition)
+    {
+        rb->setTransform(
+            rp3d::Transform(physics::glm2rp3d(newPosition),
+            rb->getTransform().getOrientation()));
     }
 
     // TODO? unload?
     ~ECRigidBody()
     {
         log::cerr << "~ECRigidBody()!" << log::endl;
-        env->Unregister(&rb);
+        // env->Unregister(&rb);
     }
 
     EC_STATIC_CREATE(ECRigidBody);
@@ -432,15 +445,24 @@ public:
 
     virtual void update(float dt) override
     {
+        if(rb == nullptr) return; // todo: move to start() or something, this is bad...? im not sure tho
+
+        // // TODO: fix (Z X Y) to be (X Y Z)... maybe rotateZXY is doing something?
+        glm::vec3 move = { 0, 0, 0 };
+
         /**/ if(ResourceGlobals::window->keyPressed(GLFW_KEY_W))
-            rb->addForce(glm::vec3(0, 0, +speed) * entity->transform.rotation);
+            move.z = +speed;
         else if(ResourceGlobals::window->keyPressed(GLFW_KEY_S))
-            rb->addForce(glm::vec3(0, 0, -speed) * entity->transform.rotation);
+            move.z = -speed;
         
         /**/ if(ResourceGlobals::window->keyPressed(GLFW_KEY_D))
-            rb->addForce(glm::vec3(+speed, 0, 0) * entity->transform.rotation);
+            move.x = +speed;
         else if(ResourceGlobals::window->keyPressed(GLFW_KEY_A))
-            rb->addForce(glm::vec3(-speed, 0, 0) * entity->transform.rotation);
+            move.x = -speed;
+        
+        rb->setPositionColliding(
+            entity->transform.position +
+            move * dt * entity->transform.rotation);
     }
     
     EC_STATIC_CREATE(ECPlayerController);
@@ -943,6 +965,8 @@ public:
 
         ImGui::BeginChild("Screen Image", ImVec2(0, -ImGui::GetTextLineHeightWithSpacing()));
 
+        // glm::lookAtLH()
+
         float actualHeight = std::min(screenTextureSizes[currentTexture].y,
             ImGui::GetWindowSize().y - ImGui::GetTextLineHeightWithSpacing());
         
@@ -1033,12 +1057,14 @@ public:
         // -----------============  World Setup  ============----------- //
 
         log::cout << "Setting Up Physics Enviroment..." << log::endl;
-        env = new rbEnvironment(rbEnvironment::Config {
-            .RigidBodyCapacity = 20,
-            .ContactCapacty = 100,
-        });
+        // env = new rbEnvironment(rbEnvironment::Config {
+        //     .RigidBodyCapacity = 20,
+        //     .ContactCapacty = 100,
+        // });
 
-        ResourceGlobals::physicsEnv = env;
+        rp3d::PhysicsCommon physicsCommon;
+        ResourceGlobals::physicsCommon = &physicsCommon;
+        ResourceGlobals::physicsWorld  = physicsCommon.createPhysicsWorld();
 
         skybox = new core::gfx::skybox {
             .texture = *resourceManager.cubemaps["skybox"],
@@ -1217,33 +1243,33 @@ public:
 
     bool handleInput(float dt)
     {
-        glm::vec3 move { 0, 0, 0 };
+        // glm::vec3 move { 0, 0, 0 };
 
-        /**/ if(win->keyPressed(GLFW_KEY_A))
-            move.x -= cameraSpeed * dt;
-        else if(win->keyPressed(GLFW_KEY_D))
-            move.x += cameraSpeed * dt;
+        // /**/ if(win->keyPressed(GLFW_KEY_A))
+        //     move.x -= cameraSpeed * dt;
+        // else if(win->keyPressed(GLFW_KEY_D))
+        //     move.x += cameraSpeed * dt;
 
-        /**/ if(win->keyPressed(GLFW_KEY_LEFT_SHIFT))
-            move.y -= cameraSpeed * dt;
-        else if(win->keyPressed(GLFW_KEY_SPACE))
-            move.y += cameraSpeed * dt;
+        // /**/ if(win->keyPressed(GLFW_KEY_LEFT_SHIFT))
+        //     move.y -= cameraSpeed * dt;
+        // else if(win->keyPressed(GLFW_KEY_SPACE))
+        //     move.y += cameraSpeed * dt;
 
-        /**/ if(win->keyPressed(GLFW_KEY_S))
-            move.z -= cameraSpeed * dt;
-        else if(win->keyPressed(GLFW_KEY_W))
-            move.z += cameraSpeed * dt;
+        // /**/ if(win->keyPressed(GLFW_KEY_S))
+        //     move.z -= cameraSpeed * dt;
+        // else if(win->keyPressed(GLFW_KEY_W))
+        //     move.z += cameraSpeed * dt;
 
         if(win->keyPressed(GLFW_KEY_ESCAPE))
         {
             win->lockCursor(false);
         }
     
-        if(move != glm::vec3{ 0, 0, 0 })
-        {
-            camera->transform.position += move * camera->transform.rotation;
-            return true;
-        }
+        // if(move != glm::vec3{ 0, 0, 0 })
+        // {
+        //     camera->transform.position += move * camera->transform.rotation;
+        //     return true;
+        // }
         return false;
     }
 

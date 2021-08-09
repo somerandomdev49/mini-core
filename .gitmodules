@@ -1,0 +1,3 @@
+[submodule "3rd-party/libccd"]
+	path = 3rd-party/libccd
+	url = https://github.com/danfis/libccd

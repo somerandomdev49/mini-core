@@ -61,25 +61,30 @@ float calculateShadow(vec4 fragPosLightSpace, vec3 normal, float mult) {
 
 const float N = 4;
 
+const float fogStart = 0.2;
+const float fogEnd   = 1; 
+
 void main() {
+    // i have no idea why -sTexCoord...
     vec3 fragPos = texture(gPosition, -sTexCoord).xyz;
     vec4 fragPosLightSpace = texture(gPositionLightSpace, -sTexCoord);
     vec4 normalValue = texture(gNormal, -sTexCoord);
     vec3 normal = normalValue.xyz * 2 - 1;
     vec4 diffuse = texture(gDiffuse, -sTexCoord);
-    float depth = texture(gDepthColor, -sTexCoord).r;
+    float depth = texture(gDepthColor, -sTexCoord).r * 2 - 1;
     float shadowDepth = texture(gShadowDepth, -sTexCoord).r;
 
     // vec3 shadowColor = 1 - uLighting.directional.rgb;
     float shadowValue     = clamp(calculateShadow(fragPosLightSpace, normal, 1.0) * normalValue.w, 0, 1);
     float selfShadowValue = directionalLight(normal, uLighting.directional, uLighting.ambient, normalValue.w);
     float totalShadow = (shadowValue * selfShadowValue);
-    // [0; 1] -> [X; Y] = s
-    // (1-s - lightColor
+
+    float fogFactor = (depth - fogStart) / (fogEnd - fogStart);
+    fogFactor = clamp(fogFactor, 0, 0.1);
     
-    vec3 color =
+    vec3 color = //vec3(depth);
         // ((1 - clamp(shadowValue * selfShadowValue, 0, 1)) - uLighting.directionalTint) *
-        totalShadow * uLighting.directionalTint * diffuse.rgb;// *
+        totalShadow * uLighting.directionalTint * diffuse.rgb;// * + vec3(fogFactor);
         //((1 - selfShadowValue) - uLighting.directionalTint);
     
     oColor = vec4(color, 1.0);

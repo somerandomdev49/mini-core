@@ -1,21 +1,12 @@
-# Use the following command instead:
-# NOTE: requires c++20 (c++17/11 with little (!) modifications)
-# NOTE: Add libraries yourself! (glfw3 + OpenGL)
-# g++ *.cpp 3rd-party/glad.c -o main -std=c++20 -I3rd-party/include
-
-
-
-
-
 # i dont like makefiles so i made my own very weird thing
 
 prefixWithDotDot := x => x.split(' ').filter(y=>y.length).map(y=>'-I../'+y.slice(2)).join(' ');
 
 libs := -lglfw3 -framework Cocoa -framework OpenGL -framework IOKit
-includes := -I3rd-party/imgui -I3rd-party/include -I3rd-party/rigidbox/include
+includes := -I3rd-party/imgui -I3rd-party/include -I3rd-party/rigidbox/include -I3rd-party/reactphysics3d/include
 includes_tmp := %%prefixWithDotDot(%includes)
-flags := -Wno-missing-field-initializers -Wno-unused-parameter -Wno-unused-function -Wno-unused-variable -Wno-unknown-pragmas
-# -I3rd-party/reactphysics3d/include
+# flags := -Wall -Wextra -Wno-missing-field-initializers -Wno-unused-parameter -Wno-unused-function -Wno-unused-variable -Wno-unknown-pragmas
+flags := 
 
 CXX := g++-10
 
@@ -26,7 +17,7 @@ default:
     export CPLUS_INCLUDE_PATH=/usr/local/Cellar/gcc/10.2.0/include/c++/10.2.0
 
 # The `<dir> %@ <command>` runs a command in a specific directory.
-    build %@ %CXX -c ../*.cpp -std=c++20 %includes_tmp -fdiagnostics-color -Wall -Wextra %flags
+    build %@ %CXX -c ../*.cpp -std=c++20 %includes_tmp -fdiagnostics-color%flags
 
 # `%~funcName <command>` passes the output of the command though a function.
 # in this case, macos's linker shows warnings when linking with some frameworks,
@@ -44,8 +35,9 @@ linkerFilter := s => s.split('\n').filter(x => !(/^ld: warning: text-based stub 
 countlines:
     scc --exclude-dir=data,3rd-party,.vscode --include-ext=hpp,cpp
 
-# The build libraries job. This is ran only once oer eternity.
+# The build libraries job. This is ran only once per eternity.
 build-libs:
     mkdir -p build/
+    build %@ %CXX -c ../3rd-party/reactphysics3d/src/**/*.cpp -std=c++17 %includes_tmp
     build %@ %CXX -c ../3rd-party/rigidbox/source/*.cpp -std=c++20 %includes_tmp
     build %@ %CXX -c ../3rd-party/imgui/*.cpp ../3rd-party/glad.c -std=c++20 %includes_tmp
