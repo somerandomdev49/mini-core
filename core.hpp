@@ -1210,7 +1210,7 @@ namespace srd::core::window
             // }
             
             update(delta);
-            
+
             after_render();
 
             glfwSwapBuffers(win);
